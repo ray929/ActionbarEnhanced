@@ -1,5 +1,5 @@
 -- ButtonAurasReborn/Overlay.lua
--- 把"已绑定"的 CDM 增益的【剩余时间(F0FF00 黄,左上)】与【层数(00FDFF 青,左下)】渲染到原生动作条按钮上（字号硬代码 20，均带重描边）。
+-- 把"已绑定"的 CDM 增益的【剩余时间(F0FF00 黄,左下)】与【层数(00FDFF 青,左上)】渲染到原生动作条按钮上（字号硬代码 20，均带重描边）。
 --
 -- ⚠️ 战斗中数据来源（踩过的坑，已修正）：
 --   C_UnitAuras.GetAuraDataByAuraInstanceID 返回的 duration/expirationTime/applications
@@ -90,7 +90,7 @@ local function CreateAuraDisplay(parent)
     cd:SetDrawEdge(false)
     if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(false) end  -- 显示倒计时数字
     if cd.SetCountdownAbbrevThreshold then cd:SetCountdownAbbrevThreshold(60) end
-    -- 计时数字落在按钮【左上】区域；cd 的分区锚点在 PositionOverlay 里按真实容器尺寸设置
+    -- 计时数字落在按钮【左下】区域；cd 的分区锚点在 PositionOverlay 里按真实容器尺寸设置
     -- （字体/颜色不在这里设——CooldownFrameTemplate 的倒计时 FontString 要等冷却真正运行后
     --   才由暴雪创建，改用 StyleCountdown 在每次更新后拿 GetCountdownFontString 上样式）。
     cd:Hide()
@@ -98,7 +98,7 @@ local function CreateAuraDisplay(parent)
     local stack = container:CreateFontString(nil, "OVERLAY")
     stack:SetFont(FONT, FONT_SIZE, "THICKOUTLINE")  -- 层数：硬代码字号 + 重描边
     stack:SetTextColor(STACK_COLOR[1], STACK_COLOR[2], STACK_COLOR[3])
-    stack:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 2, 2)
+    stack:SetPoint("TOPLEFT", container, "TOPLEFT", 2, -2)  -- 层数显示在【左上】
     stack:SetJustifyH("LEFT")
     stack:Hide()
 
@@ -125,11 +125,11 @@ local function PositionOverlay(ov)
     ov.container:ClearAllPoints()
     ov.container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
     ov.container:SetSize(cw, ch)
-    -- 计时数字落在按钮【左上】区域：cd 占容器左上 62%（数字在该矩形内居中 → 视觉贴左上）
+    -- 计时数字落在按钮【左下】区域：cd 占容器左下 62%（数字在该矩形内居中 → 视觉贴左下）
     if ov.cd then
         ov.cd:ClearAllPoints()
-        ov.cd:SetPoint("TOPLEFT", ov.container, "TOPLEFT", 1, -1)
-        ov.cd:SetPoint("BOTTOMRIGHT", ov.container, "TOPLEFT", cw * 0.62, -ch * 0.62)
+        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, 1)
+        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62)
     end
     return true
 end
