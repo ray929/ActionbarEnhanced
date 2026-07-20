@@ -300,7 +300,7 @@ end
 --       如真言术韧 21562 是基础法术 ID，玩家身上的实际光环可能用 override/变体 ID）
 -- spellName 可选；提供时启用名字回退查找。
 local function QueryPlayerAura(spellID, spellName)
-    -- 步骤 1：spellID 精确匹配
+    -- 步骤 1：spellID 精确匹配（战斗安全，GetAuraDataBySpellID 不涉及 secret 比较）
     local ok, data = pcall(C_UnitAuras.GetAuraDataBySpellID, "player", spellID)
     if ok and data then
         local instanceID = data.auraInstanceID
@@ -310,12 +310,16 @@ local function QueryPlayerAura(spellID, spellName)
     end
 
     -- 步骤 2：按名字遍历玩家增益回退查找
-    if not spellName then return nil, nil end
+    -- ⚠️ 战斗中不执行！GetAuraDataByIndex 返回的 aura.name 是 secret string，
+    --    在战斗中做 == 比较会报 "attempt to compare field 'name' (a secret string value)" taint 错误。
+    --    长时间 buff（如真言术韧 1 小时）的 auraInstanceID 在整个生命周期内固定，
+    --    战斗中用脱战时建立的映射即可，UpdateOverlay 仍走安全的 GetAuraDuration/GetAuraApplicationDisplayCount。
+    if not spellName or InCombatLockdown() then return nil, nil end
     local i = 1
     while true do
         local okI, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
         if not okI or not aura then break end
-        -- 只比较 name 字符串（不涉及 secret 数字比较，安全）
+        -- 只比较 name 字符串（非战斗时安全）
         if aura.name and aura.name == spellName then
             if aura.auraInstanceID then
                 return "player", aura.auraInstanceID
@@ -586,11 +590,15 @@ evFrame:SetScript("OnEvent", function(_, event, arg1)
         end
     elseif event == "UNIT_AURA" then
         -- 只响应玩家自身的光环变化，加 0.5 秒防抖避免战斗中频繁遍历
-        if arg1 == "player" and not auraUpdatePending then
+        -- ⚠️ 战斗中不触发名字遍历（aura.name 是 secret string，比较会 taint）
+        --    战斗中 extraTracked overlay 靠已建立的 auraInstanceID + GetAuraDuration 安全更新
+        if arg1 == "player" and not auraUpdatePending and not InCombatLockdown() then
             auraUpdatePending = true
             C_Timer.After(0.5, function()
                 auraUpdatePending = false
-                RefreshAllExtraTracked()
+                if not InCombatLockdown() then
+                    RefreshAllExtraTracked()
+                end
             end)
         end
     else
