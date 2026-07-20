@@ -405,6 +405,10 @@ local function HookViewerItem(item)
 end
 
 local hookedViewers = {}
+-- 调试开关：/run ButtonAurasReborn.AutoCDM.debugAcquire = true
+-- 开启后每次 OnAcquireItemFrame 都打印 item 的关键字段，验证"OnAcquire 是否对所有 buff 触发"
+AutoCDM.debugAcquire = false
+
 local function InstallHooks()
     if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then return end
     for _, viewerName in ipairs(VIEWER_NAMES) do
@@ -413,6 +417,24 @@ local function InstallHooks()
             if v and v.OnAcquireItemFrame then
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, f)
                     if not AutoCDM.IsEnabled() then return end
+                    -- 调试输出：验证 OnAcquireItemFrame 是否对所有 buff 触发（不只是追踪集）
+                    if AutoCDM.debugAcquire and f then
+                        local cdID = f.cooldownID or "?"
+                        local unit = f.auraDataUnit or "?"
+                        local inst = f.auraInstanceID or "?"
+                        local spName = "?"
+                        if f.cooldownID then
+                            local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, f.cooldownID)
+                            if okI and info and info.spellID then
+                                local okN, nm = pcall(C_Spell.GetSpellName, info.spellID)
+                                if okN and nm then spName = nm end
+                            end
+                        end
+                        print("|cff00ccff[Acquire]|r cdID=" .. tostring(cdID)
+                            .. " unit=" .. tostring(unit)
+                            .. " inst=" .. tostring(inst)
+                            .. " spell=" .. spName)
+                    end
                     if f and f.cooldownID then
                         HookViewerItem(f)
                         UpdateFromItem(f)
