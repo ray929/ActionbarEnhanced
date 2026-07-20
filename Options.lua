@@ -46,6 +46,27 @@ function BAR.RefreshSpecLabel()
 end
 BAR.RefreshSpecLabel()
 
+-- 自动发现系统开关（与手动绑定系统【独立】，由 AutoCDM.lua 实现）
+-- 勾选后自动显示 CDM 追踪的全部增益（无需手动绑定），文字按归属上色（自己绿/别人红/层数黄）。
+-- 注意：AutoCDM.lua 已在 TOC 中先于本文件加载，故此处可直接读取 BAR.AutoCDM。
+local autoChk = CreateFrame("CheckButton", nil, panel)
+autoChk:SetSize(18, 18)
+autoChk:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 0, -6)
+autoChk:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+autoChk:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+autoChk:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
+autoChk:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+if BAR.AutoCDM then
+    BAR.AutoCDM.EnsureDB()
+    autoChk:SetChecked(BAR.AutoCDM.IsEnabled())
+end
+local autoLbl = autoChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+autoLbl:SetPoint("LEFT", autoChk, "RIGHT", 6, 0)
+autoLbl:SetText("自动发现：显示 CDM 追踪的全部增益（按归属上色：自己绿 / 别人红 / 层数黄）")
+autoChk:SetScript("OnClick", function()
+    if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(autoChk:GetChecked()) end
+end)
+
 -- 滚动列表（置于外观+专精标签下方）
 local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -150)
