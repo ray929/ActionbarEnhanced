@@ -104,14 +104,20 @@ end
 -- =========================================================
 -- 自动发现：找"当前放了某技能"的原生动作按钮（移植自 CDMButtonAuras）
 -- =========================================================
--- 由 spellID 取得法术名，遍历所有原生动作条按钮，用 GetActionInfo 拿到按钮上的技能，
+-- 由一组候选法术【名】遍历所有原生动作条按钮，用 GetActionInfo 拿到按钮上的技能，
 -- 比对法术名（名称等价，自动处理 linked/override 法术）。返回【所有】匹配的按钮
 -- （一个法术可能同时出现在多个动作条上，每个按钮都挂覆盖层，与 CDMButtonAuras 一致）。
-local function FindActionButtonsForSpellName(name)
+-- names 可为字符串或字符串数组；任一名字命中即视为匹配（对齐 CDMButtonAuras
+-- GetActionButtonList 的"多名字匹配"思路，避免漏掉真言术韧这类护甲/祝福类——
+-- 其 info 的 overrideSpellID/linkedSpellIDs 与 spellID 指向不同名字）。
+local function FindActionButtonsForSpellName(names)
     local result = {}
-    if not name then return result end
-    local names = (BAR.GetActionBarButtonNames and BAR.GetActionBarButtonNames()) or {}
-    for _, btnName in ipairs(names) do
+    if not names then return result end
+    if type(names) == "string" then names = { names } end
+    local nameSet = {}
+    for _, n in ipairs(names) do nameSet[n] = true end
+    local btnNames = (BAR.GetActionBarButtonNames and BAR.GetActionBarButtonNames()) or {}
+    for _, btnName in ipairs(btnNames) do
         local btn = _G[btnName]
         if btn and btn.action then
             local _, actionSpellID = GetActionInfo(btn.action)
@@ -119,7 +125,7 @@ local function FindActionButtonsForSpellName(name)
                 local okB, baseID = pcall(C_Spell.GetBaseSpell, actionSpellID)
                 if okB and baseID then
                     local okN, actionSpellName = pcall(C_Spell.GetSpellName, baseID)
-                    if okN and actionSpellName == name then
+                    if okN and actionSpellName and nameSet[actionSpellName] then
                         result[#result + 1] = btn
                     end
                 end
@@ -127,16 +133,6 @@ local function FindActionButtonsForSpellName(name)
         end
     end
     return result
-end
-
--- 由 CDM 返回的 info 解析出可用的 spellID（优先 linked > override > spellID）
-local function ResolveSpellID(info)
-    if not info then return nil end
-    local linked = info.linkedSpellIDs and info.linkedSpellIDs[1]
-    if linked and type(linked) == "number" and linked > 0 then return linked end
-    if info.overrideSpellID and type(info.overrideSpellID) == "number" and info.overrideSpellID > 0 then return info.overrideSpellID end
-    if info.spellID and type(info.spellID) == "number" and info.spellID > 0 then return info.spellID end
-    return nil
 end
 
 -- =========================================================
@@ -188,18 +184,32 @@ local function UpdateOverlay(ov)
     end
 end
 
--- 对每个 CDM item：解析 spellID → 找自然按钮 → 建/更新覆盖层
+-- 对每个 CDM item：收集候选 spellID（spellID + overrideSpellID + linkedSpellIDs）→ 取名字
+-- → 找自然按钮 → 建/更新覆盖层。对齐 CDMButtonAuras 的多名字匹配，覆盖"护甲/祝福类
+-- 法术的 override/linked 名字异于 spellID"的情形（如真言术韧），这是它们能显示的关键。
 local function UpdateFromItem(item)
     if not item or not item.cooldownID then return end
     local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, item.cooldownID)
     if not ok or not info then return end
-    local spellID = ResolveSpellID(info)
-    if not spellID then return end
 
-    local okN, spellName = pcall(C_Spell.GetSpellName, spellID)
-    if not okN or not spellName then return end
+    -- 收集所有候选 spellID（spellID + overrideSpellID + linkedSpellIDs），
+    -- 任一对应名字能匹配到动作条按钮即显示。
+    local ids = {}
+    if info.spellID and info.spellID > 0 then ids[#ids + 1] = info.spellID end
+    if info.overrideSpellID and info.overrideSpellID > 0 then ids[#ids + 1] = info.overrideSpellID end
+    if info.linkedSpellIDs then
+        for _, id in ipairs(info.linkedSpellIDs) do
+            if id and id > 0 then ids[#ids + 1] = id end
+        end
+    end
+    local candidates = {}
+    for _, id in ipairs(ids) do
+        local okN, nm = pcall(C_Spell.GetSpellName, id)
+        if okN and nm then candidates[#candidates + 1] = nm end
+    end
+    if #candidates == 0 then return end
 
-    local buttons = FindActionButtonsForSpellName(spellName)
+    local buttons = FindActionButtonsForSpellName(candidates)
     if #buttons == 0 then return end  -- 该技能不在任何原生动作条上 → 无按钮可挂
 
     for _, btn in ipairs(buttons) do
@@ -208,6 +218,8 @@ local function UpdateFromItem(item)
             local cd, stack, container = CreateAuraDisplay()
             ov = { button = btn, cd = cd, stackText = stack, container = container, viewerItem = nil }
             autoOverlays[btn] = ov
+            -- 倒计时归零时主动重刷（对齐 CDMButtonAuras 的 OnCooldownDone，补漏边缘 case）
+            cd:SetScript("OnCooldownDone", function() UpdateOverlay(ov) end)
         end
         ov.viewerItem = item
         UpdateOverlay(ov)
