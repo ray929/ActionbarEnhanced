@@ -1,0 +1,14 @@
+# IDE / 编辑器
+.trae
+.vscode
+.idea
+
+# AI 助手 / 工作区元数据（记忆、临时脚本等，非插件代码）
+.codebuddy
+.workbuddy
+.temp
+.test
+
+# 系统
+.DS_Store
+Thumbs.db
