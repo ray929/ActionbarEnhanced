@@ -470,11 +470,11 @@ function AutoCDM.SetEnabled(v)
     AutoCDM.RefreshAll()
 end
 
--- 一次性重新同步所有覆盖层：
---   1. 清空所有 viewerItem 和回退标记
---   2. 路径 A：重扫两个 CDM viewer 的当前帧
---   3. 路径 B：重扫 extraTracked 列表
---   4. 隐藏没有任何数据源的残留 overlay
+-- 一次性重新同步所有覆盖层（增量同步，不清空现有数据源）：
+--   1. 路径 A：重扫两个 CDM viewer 的当前帧（UpdateFromItem 会设置 viewerItem）
+--   2. 路径 B：重扫 extraTracked 列表
+--   3. 只隐藏本次扫描没有被更新的 CDM overlay（CDM 已不再追踪的 buff）
+-- ⚠️ 不清空现有 viewerItem 再重建（那样会打断 RefreshData hook 的实时性，导致延迟）
 function AutoCDM.RefreshAll()
     if not AutoCDM.IsEnabled() then
         for _, ov in pairs(autoOverlays) do
@@ -483,23 +483,51 @@ function AutoCDM.RefreshAll()
         end
         return
     end
-    -- 清空旧数据源引用（保留 overlay 对象以复用 Cooldown 控件）
-    for _, ov in pairs(autoOverlays) do
-        ov.viewerItem = nil
-        if ov.extraTracked then
-            ov.unit = nil; ov.auraInstanceID = nil
-        end
-    end
 
-    -- 路径 A：CDM 自动发现
+    -- 记录本次扫描发现的 CDM button 集合（用于后续清理过期 overlay）
+    local seenCDMButtons = {}
+
+    -- 路径 A：CDM 自动发现（UpdateFromItem 会设置 ov.viewerItem）
     for _, viewerName in ipairs(VIEWER_NAMES) do
         local viewer = _G[viewerName]
         if viewer and viewer.GetItemFrames then
             local ok, frames = pcall(viewer.GetItemFrames, viewer)
             if ok and frames then
                 for _, f in ipairs(frames) do
-                    if f.cooldownID then UpdateFromItem(f) end
+                    if f.cooldownID then
+                        UpdateFromItem(f)
+                        -- 记录哪些 button 被本次扫描更新了
+                        -- UpdateFromItem 内部会匹配按钮并设置 viewerItem
+                        -- 这里简单标记：遍历 autoOverlays 找有 viewerItem==f 的
+                    end
                 end
+            end
+        end
+    end
+
+    -- 标记本次扫描中被更新的 overlay（有 viewerItem 且 viewerItem 仍有效的）
+    for _, ov in pairs(autoOverlays) do
+        if ov.viewerItem then
+            -- 检查 viewerItem 是否还在当前 CDM frames 里
+            local stillValid = false
+            for _, viewerName in ipairs(VIEWER_NAMES) do
+                local viewer = _G[viewerName]
+                if viewer and viewer.GetItemFrames then
+                    local ok, frames = pcall(viewer.GetItemFrames, viewer)
+                    if ok and frames then
+                        for _, f in ipairs(frames) do
+                            if f == ov.viewerItem then
+                                stillValid = true
+                                break
+                            end
+                        end
+                    end
+                end
+                if stillValid then break end
+            end
+            if not stillValid then
+                ov.viewerItem = nil
+                ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
             end
         end
     end
@@ -507,10 +535,12 @@ function AutoCDM.RefreshAll()
     -- 路径 B：额外追踪回退
     RefreshAllExtraTracked()
 
-    -- 隐藏没有任何数据源的覆盖层
+    -- 重新定位所有有数据源的 overlay（按钮可能移动了）
     for _, ov in pairs(autoOverlays) do
-        if not ov.viewerItem and (not ov.extraTracked or not ov.auraInstanceID) then
-            ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
+        if ov.viewerItem or (ov.extraTracked and ov.auraInstanceID) then
+            if not PositionOverlay(ov) then
+                ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
+            end
         end
     end
 end
@@ -532,6 +562,9 @@ evFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 evFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 evFrame:RegisterEvent("UNIT_AURA")  -- v2 新增：驱动 extraTracked 回退路径的更新
 
+-- UNIT_AURA 防抖标志（避免战斗中频繁遍历光环）
+local auraUpdatePending = false
+
 evFrame:SetScript("OnEvent", function(_, event, arg1)
     AutoCDM.EnsureDB()
     InstallHooks()
@@ -541,15 +574,28 @@ evFrame:SetScript("OnEvent", function(_, event, arg1)
         C_Timer.After(0.5, function() InstallHooks(); AutoCDM.RefreshAll() end)
         C_Timer.After(2.0, function() InstallHooks(); AutoCDM.RefreshAll() end)
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        C_Timer.After(0.1, function() AutoCDM.RefreshAll() end)
+        -- ⚠️ 只重新定位 overlay（按钮可能移动了位置），不清空数据源！
+        -- 清空数据源会打断 RefreshData hook 的实时性 → 显示延迟
+        -- RefreshData hook 仍然实时驱动时间/层数更新
+        for _, ov in pairs(autoOverlays) do
+            if ov.viewerItem or (ov.extraTracked and ov.auraInstanceID) then
+                if not PositionOverlay(ov) then
+                    ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
+                end
+            end
+        end
     elseif event == "UNIT_AURA" then
-        -- 只响应玩家自身的光环变化（减少不必要的刷新）
-        if arg1 == "player" then
-            RefreshAllExtraTracked()
+        -- 只响应玩家自身的光环变化，加 0.5 秒防抖避免战斗中频繁遍历
+        if arg1 == "player" and not auraUpdatePending then
+            auraUpdatePending = true
+            C_Timer.After(0.5, function()
+                auraUpdatePending = false
+                RefreshAllExtraTracked()
+            end)
         end
     else
-        -- 进出战斗：重新同步一次（战斗中靠 RefreshData 实时驱动，此处补漏）
-        C_Timer.After(0.1, function() AutoCDM.RefreshAll() end)
+        -- 进出战斗：立即重新同步（不延迟，避免战斗开始时 overlay 丢失）
+        AutoCDM.RefreshAll()
     end
 end)
 
