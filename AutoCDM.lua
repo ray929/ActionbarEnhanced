@@ -293,15 +293,36 @@ end
 -- 由 spellID 尝试从玩家身上获取光环数据（回退路径的核心）。
 -- 返回 (unit, auraInstanceID) 或 (nil, nil)。
 -- ⚠️ 只在非战斗或安全上下文中调用（避免 taint）。
-local function QueryPlayerAura(spellID)
-    -- 安全调用：整个操作包在 pcall 中
+-- 两步查找：
+--   1. GetAuraDataBySpellID 精确匹配 spellID（最快）
+--   2. 若失败，按 spellName 遍历玩家增益找名字匹配的
+--      （处理"基础 spellID ≠ 玩家身上实际光环 spellID"的情况，
+--       如真言术韧 21562 是基础法术 ID，玩家身上的实际光环可能用 override/变体 ID）
+-- spellName 可选；提供时启用名字回退查找。
+local function QueryPlayerAura(spellID, spellName)
+    -- 步骤 1：spellID 精确匹配
     local ok, data = pcall(C_UnitAuras.GetAuraDataBySpellID, "player", spellID)
-    if not ok or not data then return nil, nil end
-    -- data 是暴雪 aura 数据结构；我们只取 auraInstanceID 字段（数字标识符，非secret 比较）
-    -- 绝不做 data.duration > 0 之类的 secret 比较！
-    local instanceID = data.auraInstanceID
-    if instanceID then
-        return "player", instanceID
+    if ok and data then
+        local instanceID = data.auraInstanceID
+        if instanceID then
+            return "player", instanceID
+        end
+    end
+
+    -- 步骤 2：按名字遍历玩家增益回退查找
+    if not spellName then return nil, nil end
+    local i = 1
+    while true do
+        local okI, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+        if not okI or not aura then break end
+        -- 只比较 name 字符串（不涉及 secret 数字比较，安全）
+        if aura.name and aura.name == spellName then
+            if aura.auraInstanceID then
+                return "player", aura.auraInstanceID
+            end
+        end
+        i = i + 1
+        if i > 40 then break end  -- 安全上限
     end
     return nil, nil
 end
@@ -319,8 +340,8 @@ local function UpdateExtraTracked(spellID)
     local buttons = FindActionButtonsForSpellName(spellName)
     if #buttons == 0 then return end
 
-    -- 查询玩家身上的光环数据（回退路径）
-    local unit, instanceID = QueryPlayerAura(spellID)
+    -- 查询玩家身上的光环数据（回退路径：先 spellID 精确匹配，失败则按名字遍历查找）
+    local unit, instanceID = QueryPlayerAura(spellID, spellName)
     if not unit or not instanceID then
         -- 玩家身上暂时没有这个 buff → 隐藏已有 overlay（不清除，等下次 UNIT_AURA 再试）
         for _, btn in ipairs(buttons) do
@@ -569,7 +590,7 @@ function AutoCDM.DebugPrint()
     for spellID, _ in pairs(tracked) do
         local okN, name = pcall(C_Spell.GetSpellName, spellID)
         local nameStr = (okN and name) or "?"
-        local unit, instID = QueryPlayerAura(spellID)
+        local unit, instID = QueryPlayerAura(spellID, nameStr)
         local buttons = FindActionButtonsForSpellName(nameStr)
         local status = "未找到"
         if unit and instID then
