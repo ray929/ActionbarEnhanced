@@ -110,6 +110,10 @@ end
 -- names 可为字符串或字符串数组；任一名字命中即视为匹配（对齐 CDMButtonAuras
 -- GetActionButtonList 的"多名字匹配"思路，避免漏掉真言术韧这类护甲/祝福类——
 -- 其 info 的 overrideSpellID/linkedSpellIDs 与 spellID 指向不同名字）。
+-- 注意：按钮端【直接】用 C_Spell.GetSpellName(actionSpellID) 取名字（不做 GetBaseSpell 重定向），
+-- 与 UpdateFromItem 收集候选名字时用的 GetSpellName(id) 完全对称。
+-- 若此处走 GetBaseSpell，会把"真言术韧(21562)"之类有 base-spell 重定向的法术重定向成异名的基础法术，
+-- 导致与候选名字（直接 GetSpellName(21562)="真言术韧"）对不上 → 护甲/祝福类不显示（战斗 buff 无重定向故正常）。
 local function FindActionButtonsForSpellName(names)
     local result = {}
     if not names then return result end
@@ -122,12 +126,9 @@ local function FindActionButtonsForSpellName(names)
         if btn and btn.action then
             local _, actionSpellID = GetActionInfo(btn.action)
             if actionSpellID and actionSpellID > 0 then
-                local okB, baseID = pcall(C_Spell.GetBaseSpell, actionSpellID)
-                if okB and baseID then
-                    local okN, actionSpellName = pcall(C_Spell.GetSpellName, baseID)
-                    if okN and actionSpellName and nameSet[actionSpellName] then
-                        result[#result + 1] = btn
-                    end
+                local okN, actionSpellName = pcall(C_Spell.GetSpellName, actionSpellID)
+                if okN and actionSpellName and nameSet[actionSpellName] then
+                    result[#result + 1] = btn
                 end
             end
         end
@@ -343,3 +344,54 @@ evFrame:SetScript("OnEvent", function(_, event)
         C_Timer.After(0.1, function() AutoCDM.RefreshAll() end)
     end
 end)
+
+-- =========================================================
+-- 诊断：打印每个 viewer 的帧数，以及每个 item 的候选 spellID/名字/匹配按钮数。
+-- 重载后若某 buff 不显示，聊天框执行：/run ButtonAurasReborn.AutoCDM.DebugPrint()
+-- 找到对应那一行，看 names 和 btns 数即可定位（btns=0 即没匹配到动作条按钮）。
+-- 仅打印元数据，不读 secret 数字/aura 字段，安全可在战斗中调用。
+-- =========================================================
+function AutoCDM.DebugPrint()
+    print("|cff00ccff[AutoCDM]|r === 诊断开始（启动" .. (AutoCDM.IsEnabled() and "启用" or "禁用") .. "）===")
+    for _, viewerName in ipairs(VIEWER_NAMES) do
+        local viewer = _G[viewerName]
+        if viewer and viewer.GetItemFrames then
+            local ok, frames = pcall(viewer.GetItemFrames, viewer)
+            if ok and frames then
+                print("  " .. viewerName .. ": 帧数=" .. #frames)
+                local shown = 0
+                for _, f in ipairs(frames) do
+                    if f.cooldownID and shown < 60 then
+                        shown = shown + 1
+                        local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, f.cooldownID)
+                        if okI and info then
+                            local ids = {}
+                            if info.spellID and info.spellID > 0 then ids[#ids + 1] = info.spellID end
+                            if info.overrideSpellID and info.overrideSpellID > 0 then ids[#ids + 1] = info.overrideSpellID end
+                            if info.linkedSpellIDs then
+                                for _, id in ipairs(info.linkedSpellIDs) do
+                                    if id and id > 0 then ids[#ids + 1] = id end
+                                end
+                            end
+                            local names = {}
+                            for _, id in ipairs(ids) do
+                                local okN, nm = pcall(C_Spell.GetSpellName, id)
+                                if okN and nm then names[#names + 1] = nm end
+                            end
+                            local btns = FindActionButtonsForSpellName(names)
+                            print("    cdID=" .. tostring(f.cooldownID)
+                                .. " ids={" .. table.concat(ids, ",") .. "}"
+                                .. " names={" .. table.concat(names, ",") .. "}"
+                                .. " btns=" .. #btns)
+                        end
+                    end
+                end
+            else
+                print("  " .. viewerName .. ": GetItemFrames 失败")
+            end
+        else
+            print("  " .. viewerName .. ": 不存在")
+        end
+    end
+    print("|cff00ccff[AutoCDM]|r === 诊断结束 ===")
+end
