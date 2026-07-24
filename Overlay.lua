@@ -27,12 +27,8 @@ if not BAR then return end
 
 local unpack = unpack or table.unpack
 
-local FONT = STANDARD_TEXT_FONT
-local FONT_SIZE = 20  -- 字号硬代码写死
-
--- 颜色硬代码写死（不分专精、不可配置），均带重描边（THICKOUTLINE）
-local TIME_COLOR  = { 0xF0/255, 0xFF/255, 0x00/255 }  -- 剩余时间：F0FF00 黄
-local STACK_COLOR = { 0x00/255, 0xFD/255, 0xFF/255 }  -- 层数：    00FDFF 青
+-- 样式（字号/字体/颜色）统一取自 Settings.lua，集中管理
+local S = BAR.Settings
 
 -- spellID -> { buttonName, button, cd, stackText }
 local overlays = {}
@@ -64,8 +60,8 @@ end
 local function StyleCountdown(cd)
     local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
     if not fs then return end
-    fs:SetFont(FONT, FONT_SIZE, "THICKOUTLINE")
-    fs:SetTextColor(TIME_COLOR[1], TIME_COLOR[2], TIME_COLOR[3])  -- F0FF00 黄
+    fs:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+    fs:SetTextColor(S.MANUAL_TIME_COLOR[1], S.MANUAL_TIME_COLOR[2], S.MANUAL_TIME_COLOR[3])  -- F0FF00 黄
 end
 
 -- 创建一个"计时器(Cooldown) + 层数(FontString)"显示单元，挂到 parent 上。
@@ -96,8 +92,8 @@ local function CreateAuraDisplay(parent)
     cd:Hide()
 
     local stack = container:CreateFontString(nil, "OVERLAY")
-    stack:SetFont(FONT, FONT_SIZE, "THICKOUTLINE")  -- 层数：硬代码字号 + 重描边
-    stack:SetTextColor(STACK_COLOR[1], STACK_COLOR[2], STACK_COLOR[3])
+    stack:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)  -- 层数：集中字号 + 重描边
+    stack:SetTextColor(S.MANUAL_STACK_COLOR[1], S.MANUAL_STACK_COLOR[2], S.MANUAL_STACK_COLOR[3])
     stack:SetPoint("TOPLEFT", container, "TOPLEFT", 2, -2)  -- 层数显示在【左上】
     stack:SetJustifyH("LEFT")
     stack:Hide()
@@ -128,8 +124,8 @@ local function PositionOverlay(ov)
     -- 计时数字落在按钮【左下】区域：cd 占容器左下 62%（数字在该矩形内居中 → 视觉贴左下）
     if ov.cd then
         ov.cd:ClearAllPoints()
-        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, 1)
-        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62)
+        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -3)
+        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 4)
     end
     return true
 end

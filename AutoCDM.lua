@@ -29,14 +29,9 @@ local AutoCDM = {}
 BAR.AutoCDM = AutoCDM
 
 -- =========================================================
--- 样式常量（本模块独立使用，与手动绑定系统的 F0FF00/00FDFF 区分开，方便识别两套系统）
+-- 样式常量（统一取自 Settings.lua，集中管理；与手动绑定系统配色不同，见 Settings.lua）
 -- =========================================================
-local FONT = STANDARD_TEXT_FONT
-local FONT_SIZE = 20            -- 字号硬代码写死
-local THICK = "THICKOUTLINE"
-local OWN_TIME_COLOR   = { 0.30, 1.00, 0.30 }   -- 自己的增益：绿
-local OTHER_TIME_COLOR = { 1.00, 0.30, 0.30 }   -- 别人的增益：红
-local STACK_COLOR      = { 1.00, 1.00, 0.00 }   -- 层数：黄 (F0FF00)
+local S = BAR.Settings
 
 -- 本模块独立的状态（绝不碰 Overlay.lua 的 overlays 表）
 -- 以按钮对象为 key（一个按钮对应一个自然技能，即一个被追踪增益）
@@ -75,8 +70,8 @@ local function PositionOverlay(ov)
     -- 计时数字落在按钮【左下】区域：cd 占容器左下 62%（数字居中 → 视觉贴左下）
     if ov.cd then
         ov.cd:ClearAllPoints()
-        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, 1)
-        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62)
+        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -3)
+        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 4)
     end
     return true
 end
@@ -87,7 +82,7 @@ end
 local function StyleCountdown(cd, color)
     local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
     if not fs then return end
-    fs:SetFont(FONT, FONT_SIZE, THICK)
+    fs:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
     fs:SetTextColor(color[1], color[2], color[3])
 end
 
@@ -106,8 +101,8 @@ local function CreateAuraDisplay()
     cd:Hide()
 
     local stack = container:CreateFontString(nil, "OVERLAY")
-    stack:SetFont(FONT, FONT_SIZE, THICK)
-    stack:SetTextColor(STACK_COLOR[1], STACK_COLOR[2], STACK_COLOR[3])
+    stack:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+    stack:SetTextColor(S.AUTO_STACK_COLOR[1], S.AUTO_STACK_COLOR[2], S.AUTO_STACK_COLOR[3])
     stack:SetPoint("TOPLEFT", container, "TOPLEFT", 2, -2)  -- 层数显示在【左上】
     stack:SetJustifyH("LEFT")
     stack:Hide()
@@ -147,9 +142,11 @@ local function RebuildButtonIndex()
     for _, btnName in ipairs(btnNames) do
         local btn = _G[btnName]
         if btn and btn.action then
-            local _, actionSpellID = GetActionInfo(btn.action)
-            if actionSpellID and actionSpellID > 0 then
-                local okN, actionSpellName = pcall(C_Spell.GetSpellName, actionSpellID)
+            -- GetActionInfo 第二个返回值只有在 actionType=="spell" 时才是数字 spellID；
+            -- 其它类型（equipmentset 返回套装名 string、macro 返回宏索引等）不能做数字比较。
+            local actionType, actionID = GetActionInfo(btn.action)
+            if actionType == "spell" and actionID and type(actionID) == "number" and actionID > 0 then
+                local okN, actionSpellName = pcall(C_Spell.GetSpellName, actionID)
                 if okN and actionSpellName then
                     buttonSpell[btn] = actionSpellName
                     spellToButtons[actionSpellName] = spellToButtons[actionSpellName] or {}
@@ -212,7 +209,7 @@ local function UpdateOverlay(ov)
     end
     ov.container:Show()
 
-    local timeColor = isMine and OWN_TIME_COLOR or OTHER_TIME_COLOR
+    local timeColor = isMine and S.AUTO_OWN_TIME_COLOR or S.AUTO_OTHER_TIME_COLOR
 
     -- 时间：GetAuraDuration → DurationObject → SetCooldownFromDurationObject（addon 不读 secret 数字）
     local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, unit, auraInstanceID)

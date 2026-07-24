@@ -6,6 +6,7 @@
 ## SavedVariables: ButtonAurasRebornDB
 ## DefaultState: enabled
 
+Settings.lua
 Core.lua
 AutoCDM.lua
 Options.lua
