@@ -45,6 +45,13 @@ local autoOverlays = {}   -- [button] = { button, cd, stackText, container, view
 -- CDM 两个查看器（本模块本地常量，保持独立、不依赖 Core 的 VIEWER_NAMES）
 local VIEWER_NAMES = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
 
+-- ⚠️ 前向声明：避免 Lua 局部变量词法作用域导致的"前向引用 nil"崩溃。
+-- ResolveAll(268) 会调用 RefreshAllExtraTracked(499)，后者又调用 UpdateExtraTracked(443)，
+-- UpdateExtraTracked 再调用 QueryPlayerAura(409) —— 三者定义均在 ResolveAll 之后。
+-- 用 local 声明占位后，下方用 `function X()`（不带 local）赋值即可被 ResolveAll 正确引用，
+-- 调用发生时（运行时）三个函数早已赋值完毕。这是 Lua 处理前向引用的标准做法。
+local QueryPlayerAura, UpdateExtraTracked, RefreshAllExtraTracked
+
 -- =========================================================
 -- 战斗安全定位（从 Overlay.lua 验证过的逻辑原样搬入，本模块独立副本）
 -- 容器只挂 UIParent，位置用 btn:GetRect() 读屏幕坐标再相对 UIParent 原点绝对摆放；
@@ -111,22 +118,31 @@ end
 -- =========================================================
 -- 自动发现：找"当前放了某技能"的原生动作按钮（移植自 CDMButtonAuras）
 -- =========================================================
--- 由一组候选法术【名】遍历所有原生动作条按钮，用 GetActionInfo 拿到按钮上的技能，
--- 比对法术名（名称等价，自动处理 linked/override 法术）。返回【所有】匹配的按钮
+-- 由一组候选法术【名】从缓存索引里取匹配的按钮。返回【所有】匹配的按钮
 -- （一个法术可能同时出现在多个动作条上，每个按钮都挂覆盖层，与 CDMButtonAuras 一致）。
 -- names 可为字符串或字符串数组；任一名字命中即视为匹配（对齐 CDMButtonAuras
--- GetActionButtonList 的"多名字匹配"思路，避免漏掉真言术韧这类护甲/祝福类——
--- 其 info 的 overrideSpellID/linkedSpellIDs 与 spellID 指向不同名字）。
--- 注意：按钮端【直接】用 C_Spell.GetSpellName(actionSpellID) 取名字（不做 GetBaseSpell 重定向），
--- 与 UpdateFromItem 收集候选名字时用的 GetSpellName(id) 完全对称。
--- 若此处走 GetBaseSpell，会把"真言术韧(21562)"之类有 base-spell 重定向的法术重定向成异名的基础法术，
--- 导致与候选名字（直接 GetSpellName(21562)="真言术韧"）对不上 → 护甲/祝福类不显示（战斗 buff 无重定向故正常）。
-local function FindActionButtonsForSpellName(names)
-    local result = {}
-    if not names then return result end
-    if type(names) == "string" then names = { names } end
-    local nameSet = {}
-    for _, n in ipairs(names) do nameSet[n] = true end
+-- GetActionButtonList 的"多名字匹配"思路，避免漏掉真言术韧这类护甲/祝福类）。
+--
+-- ⚠️ 关键改造（修复"不同步/错误信息"）：
+--   旧写法在 UpdateFromItem 里【逐个 CDM 帧】直接把 ov.viewerItem 指到该帧，并键控于按钮。
+--   这有两个致命缺陷：
+--     ① CDM 会把同一帧对象【复用】去显示别的 buff（多目标战斗频繁发生），
+--        复用后旧按钮仍指向该帧 → 显示【新 buff 的错误信息】。
+--     ② 同一法术在多目标时可能有【多个帧】（自己 + 各目标），每个帧的 RefreshData
+--        都去覆盖同一按钮的 viewerItem → 谁最后刷新谁赢 → 显示【随机目标】的持续时间。
+--   手动绑定系统（Overlay.lua）之所以正常，是因为它每次刷新都【按 spellID 实时重找】当前帧。
+--   本模块改为：每次刷新走全局 ResolveAll()，重新判定"每个按钮当前该显示哪个帧"，
+--   并对同名多帧【优先选 auraDataUnit=="player" 的帧】（玩家自身光环），结果确定且
+--   与 CDM 图标（玩家自身那枚）一致。解析只读 frame.auraDataUnit / cooldownID 等安全字段，战斗安全。
+--
+-- 法术名索引（spellToButtons）缓存：避免每次解析都遍历全部按钮 + 调 GetSpellName。
+-- 仅在动作条/专精变化时由 RebuildButtonIndex 重建；解析本身只读缓存，高效且战斗安全。
+local spellToButtons = {}   -- [spellName] = { btn, btn, ... }
+local buttonSpell   = {}     -- [btn] = spellName（仅记录放了法术的按钮）
+
+local function RebuildButtonIndex()
+    spellToButtons = {}
+    buttonSpell = {}
     local btnNames = (BAR.GetActionBarButtonNames and BAR.GetActionBarButtonNames()) or {}
     for _, btnName in ipairs(btnNames) do
         local btn = _G[btnName]
@@ -134,7 +150,27 @@ local function FindActionButtonsForSpellName(names)
             local _, actionSpellID = GetActionInfo(btn.action)
             if actionSpellID and actionSpellID > 0 then
                 local okN, actionSpellName = pcall(C_Spell.GetSpellName, actionSpellID)
-                if okN and actionSpellName and nameSet[actionSpellName] then
+                if okN and actionSpellName then
+                    buttonSpell[btn] = actionSpellName
+                    spellToButtons[actionSpellName] = spellToButtons[actionSpellName] or {}
+                    table.insert(spellToButtons[actionSpellName], btn)
+                end
+            end
+        end
+    end
+end
+
+local function FindActionButtonsForSpellName(names)
+    local result = {}
+    if not names then return result end
+    if type(names) == "string" then names = { names } end
+    local seen = {}
+    for _, n in ipairs(names) do
+        local btns = spellToButtons[n]
+        if btns then
+            for _, btn in ipairs(btns) do
+                if not seen[btn] then
+                    seen[btn] = true
                     result[#result + 1] = btn
                 end
             end
@@ -207,17 +243,11 @@ local function UpdateOverlay(ov)
 end
 
 -- =========================================================
--- 路径 A：CDM 自动发现（原版 CDMButtonAuras 核心逻辑）
+-- 路径 A：CDM 自动发现（核心逻辑 —— 全局解析，修复"不同步/错误信息"）
 -- =========================================================
--- 对每个 CDM item：收集候选 spellID（spellID + overrideSpellID + linkedSpellIDs）→ 取名字
--- → 找自然按钮 → 建/更新覆盖层。对齐 CDMButtonAuras 的多名字匹配。
-local function UpdateFromItem(item)
-    if not item or not item.cooldownID then return end
-    local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, item.cooldownID)
-    if not ok or not info then return end
-
-    -- 收集所有候选 spellID（spellID + overrideSpellID + linkedSpellIDs），
-    -- 任一对应名字能匹配到动作条按钮即显示。
+-- 收集一个 cooldown info 的候选法术【名】（spellID + overrideSpellID + linkedSpellIDs），
+-- 与旧 UpdateFromItem 内联的那段逻辑一致。
+local function CollectCandidateNames(info)
     local ids = {}
     if info.spellID and info.spellID > 0 then ids[#ids + 1] = info.spellID end
     if info.overrideSpellID and info.overrideSpellID > 0 then ids[#ids + 1] = info.overrideSpellID end
@@ -226,32 +256,122 @@ local function UpdateFromItem(item)
             if id and id > 0 then ids[#ids + 1] = id end
         end
     end
-    local candidates = {}
+    local names = {}
     for _, id in ipairs(ids) do
         local okN, nm = pcall(C_Spell.GetSpellName, id)
-        if okN and nm then candidates[#candidates + 1] = nm end
+        if okN and nm then names[#names + 1] = nm end
     end
-    if #candidates == 0 then return end
+    return names
+end
 
-    local buttons = FindActionButtonsForSpellName(candidates)
-    if #buttons == 0 then return end  -- 该技能不在任何原生动作条上 → 无按钮可挂
+-- 全局解析：遍历所有当前 CDM 帧，为每个匹配的按钮选出【最优】帧（优先玩家自身光环 auraDataUnit=="player"），
+-- 把该帧的 (unit, instanceID) **当前值抓取**到 overlay 上，刷新显示。
+--
+-- ⚠️ 关键修复（数据不准 / 多目标错误信息）：绝不缓存 CDM 帧对象的引用！
+--   旧写法 `ov.viewerItem = frame` 缓存了帧引用，而 CDM 会把同一帧对象**复用**去显示别的 buff，
+--   复用后 UpdateOverlay 读到的就是新 buff 的 auraDataUnit/auraInstanceID → 显示错误数据，直到下次重解析。
+--   正确做法（与 CDMButtonAuras 的 overlay:SetAura(unit, instanceID) 完全一致）：每个 overlay 只保存
+--   **抓取到的 (unit, instanceID) 值对**，帧被复用也不影响已存的值；下一轮全量重解析再更新。
+--
+-- 每轮解析先【同步】清空所有 path-A 覆盖层的数据再重派生（CDMButtonAuras 的 clear+re-derive 同款），
+-- 不走异步延迟（旧版 C_Timer.After 延迟是导致"延迟"的根因），因此既实时又无残留/错位。
+-- 解析只读 frame.auraDataUnit（unit token，非 secret）/ cooldownID 等安全字段，战斗安全。
+local function ResolveAll()
+    if not AutoCDM.IsEnabled() then return end
 
-    for _, btn in ipairs(buttons) do
+    -- 记录每个按钮本次解析到的最佳帧的【抓取值】（优先玩家自身光环）
+    local bestForButton = {}   -- [btn] = { unit=unitToken, instanceID=number, isPlayer=bool }
+
+    for _, viewerName in ipairs(VIEWER_NAMES) do
+        local viewer = _G[viewerName]
+        if viewer and viewer.GetItemFrames then
+            local ok, frames = pcall(viewer.GetItemFrames, viewer)
+            if ok and frames then
+                for _, f in ipairs(frames) do
+                    if f.cooldownID and f.auraDataUnit and f.auraInstanceID then
+                        local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, f.cooldownID)
+                        if okI and info then
+                            local candidates = CollectCandidateNames(info)
+                            if #candidates > 0 then
+                                local buttons = FindActionButtonsForSpellName(candidates)
+                                local isPlayer = (f.auraDataUnit == "player")
+                                for _, btn in ipairs(buttons) do
+                                    local cur = bestForButton[btn]
+                                    -- 未指派、或【新帧属于玩家】优于【旧帧属于别人】时覆盖
+                                    if not cur or (isPlayer and not cur.isPlayer) then
+                                        bestForButton[btn] = {
+                                            unit = f.auraDataUnit,
+                                            instanceID = f.auraInstanceID,
+                                            isPlayer = isPlayer,
+                                        }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 同步清空所有 path-A 覆盖层的数据（保留 extraTracked 回退路径的覆盖层不动）
+    for _, ov in pairs(autoOverlays) do
+        if not ov.extraTracked then
+            ov.viewerItem = nil
+            ov.unit = nil
+            ov.auraInstanceID = nil
+            ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
+        end
+    end
+
+    -- 按解析结果指派 + 刷新（抓取值存到 overlay，不存帧引用）
+    for btn, best in pairs(bestForButton) do
         local ov = autoOverlays[btn]
         if not ov then
             local cd, stack, container = CreateAuraDisplay()
             ov = { button = btn, cd = cd, stackText = stack, container = container, viewerItem = nil }
             autoOverlays[btn] = ov
-            -- 倒计时归零时主动重刷（对齐 CDMButtonAuras 的 OnCooldownDone，补漏边缘 case）
+            -- 倒计时归零时主动重刷（补漏边缘 case）
             cd:SetScript("OnCooldownDone", function() UpdateOverlay(ov) end)
         end
-        ov.viewerItem = item
-        -- 清除回退标记（CDM 有数据时优先用 CDM 路径）
-        ov.unit = nil
-        ov.auraInstanceID = nil
-        ov.extraTracked = nil
-        UpdateOverlay(ov)
+        -- 已被 extraTracked 管理的按钮，交给回退路径处理，path-A 不抢占
+        if ov.extraTracked then
+            ov.viewerItem = nil
+            ov.unit = nil
+            ov.auraInstanceID = nil
+        else
+            ov.viewerItem = nil          -- 不再缓存帧引用
+            ov.unit = best.unit          -- 抓取到的当前值（免疫帧复用）
+            ov.auraInstanceID = best.instanceID
+            ov.extraTracked = nil
+            ov.extraSpellID = nil
+            UpdateOverlay(ov)
+        end
     end
+
+    -- 路径 B：额外追踪回退（extraTracked），在未被 path A 占用的按钮上叠加显示
+    RefreshAllExtraTracked()
+
+    -- 重新定位所有有数据源的 overlay（按钮可能移动了）
+    for _, ov in pairs(autoOverlays) do
+        if (ov.unit and ov.auraInstanceID) or (ov.extraTracked and ov.auraInstanceID) then
+            if not PositionOverlay(ov) then
+                ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
+            end
+        end
+    end
+end
+
+-- 防抖：CDM 在战斗中会频繁触发各帧的 RefreshData，合并为每游戏帧最多一次 ResolveAll，
+-- 既保证实时同步又避免性能浪费。
+local resolvePending = false
+local function ScheduleResolve()
+    if resolvePending then return end
+    resolvePending = true
+    C_Timer.After(0, function()
+        resolvePending = false
+        ResolveAll()
+    end)
 end
 
 -- =========================================================
@@ -292,34 +412,41 @@ end
 
 -- 由 spellID 尝试从玩家身上获取光环数据（回退路径的核心）。
 -- 返回 (unit, auraInstanceID) 或 (nil, nil)。
--- ⚠️ 只在非战斗或安全上下文中调用（避免 taint）。
--- 两步查找：
---   1. GetAuraDataBySpellID 精确匹配 spellID（最快）
---   2. 若失败，按 spellName 遍历玩家增益找名字匹配的
---      （处理"基础 spellID ≠ 玩家身上实际光环 spellID"的情况，
---       如真言术韧 21562 是基础法术 ID，玩家身上的实际光环可能用 override/变体 ID）
+-- ✅ 全程战斗安全：不读取/比较任何 secret 值。
+-- 三步查找：
+--   1. GetAuraDataBySpellID 精确匹配 spellID（最快，战斗安全）
+--   2. 若失败，用 C_UnitAuras.FindAuraByName 按名字匹配
+--      ——【关键点】名字比较由暴雪代码在内部完成，addon 完全不碰 secret 字符串，
+--         因此战斗中也能安全执行；我们只读取返回的 auraInstanceID（非 secret 句柄）。
+--         处理"基础 spellID ≠ 玩家身上实际光环 spellID"的情况
+--        （如真言术韧 21562 是基础法术 ID，玩家身上的实际光环用 override/变体 ID）。
+--   3. （仅脱战，legacy 兜底）按名字遍历玩家增益，处理 FindAuraByName 不可用时的极端情况。
 -- spellName 可选；提供时启用名字回退查找。
-local function QueryPlayerAura(spellID, spellName)
-    -- 步骤 1：spellID 精确匹配（战斗安全，GetAuraDataBySpellID 不涉及 secret 比较）
+function QueryPlayerAura(spellID, spellName)
+    -- 步骤 1：spellID 精确匹配（战斗安全）
     local ok, data = pcall(C_UnitAuras.GetAuraDataBySpellID, "player", spellID)
-    if ok and data then
-        local instanceID = data.auraInstanceID
-        if instanceID then
-            return "player", instanceID
+    if ok and data and data.auraInstanceID then
+        return "player", data.auraInstanceID
+    end
+
+    if not spellName then return nil, nil end
+
+    -- 步骤 2：FindAuraByName —— 暴雪内部做名字匹配，addon 只读非 secret 的 auraInstanceID。
+    --   战斗安全：无 addon 侧 secret 字符串比较。
+    --   兼容 filters 参数形态（字符串或表），两种都试以确保命中。
+    for _, filt in ipairs({ "HELPFUL", { "HELPFUL" } }) do
+        local okF, fa = pcall(C_UnitAuras.FindAuraByName, spellName, "player", filt)
+        if okF and fa and fa.auraInstanceID then
+            return "player", fa.auraInstanceID
         end
     end
 
-    -- 步骤 2：按名字遍历玩家增益回退查找
-    -- ⚠️ 战斗中不执行！GetAuraDataByIndex 返回的 aura.name 是 secret string，
-    --    在战斗中做 == 比较会报 "attempt to compare field 'name' (a secret string value)" taint 错误。
-    --    长时间 buff（如真言术韧 1 小时）的 auraInstanceID 在整个生命周期内固定，
-    --    战斗中用脱战时建立的映射即可，UpdateOverlay 仍走安全的 GetAuraDuration/GetAuraApplicationDisplayCount。
-    if not spellName or InCombatLockdown() then return nil, nil end
+    -- 步骤 3：（仅脱战兜底）手动按名字遍历——legacy，仅在 FindAuraByName 不可用时生效。
+    if InCombatLockdown() then return nil, nil end
     local i = 1
     while true do
         local okI, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
         if not okI or not aura then break end
-        -- 只比较 name 字符串（非战斗时安全）
         if aura.name and aura.name == spellName then
             if aura.auraInstanceID then
                 return "player", aura.auraInstanceID
@@ -333,7 +460,7 @@ end
 
 -- 为一个额外追踪的 spellID 创建/更新 overlay。
 -- 流程：spellID → 法术名 → 匹配动作条按钮 → 查询玩家光环 → 建/更 overlay
-local function UpdateExtraTracked(spellID)
+function UpdateExtraTracked(spellID)
     if not spellID or spellID <= 0 then return end
 
     -- 先取法术名
@@ -376,8 +503,8 @@ local function UpdateExtraTracked(spellID)
             autoOverlays[btn] = ov
             cd:SetScript("OnCooldownDone", function() UpdateOverlay(ov) end)
         else
-            -- 已有 overlay：若当前由 CDM 路径 A 管理（有 viewerItem），不覆盖（CDM 优先）
-            if ov.viewerItem then return end
+            -- 已有 overlay：若当前由 CDM 路径 A 管理（有 unit/instanceID 且非 extraTracked），不覆盖（CDM 优先）
+            if ov.unit and ov.auraInstanceID and not ov.extraTracked then return end
             -- 否则更新回退数据
             ov.unit = unit
             ov.auraInstanceID = instanceID
@@ -389,7 +516,7 @@ local function UpdateExtraTracked(spellID)
 end
 
 -- 刷新所有额外追踪的 buff（由 RefreshAll 和 UNIT_AURA 事件调用）
-local function RefreshAllExtraTracked()
+function RefreshAllExtraTracked()
     if not AutoCDM.IsEnabled() then return end
     local tracked = AutoCDM.GetExtraTracked()
     for spellID, _ in pairs(tracked) do
@@ -404,7 +531,7 @@ local function HookViewerItem(item)
     if not item or item.__AutoCDMHooked then return end
     item.__AutoCDMHooked = true
     hooksecurefunc(item, "RefreshData", function()
-        if AutoCDM.IsEnabled() then UpdateFromItem(item) end
+        if AutoCDM.IsEnabled() then ScheduleResolve() end
     end)
 end
 
@@ -441,7 +568,7 @@ local function InstallHooks()
                     end
                     if f and f.cooldownID then
                         HookViewerItem(f)
-                        UpdateFromItem(f)
+                        ScheduleResolve()
                     end
                 end)
                 hookedViewers[viewerName] = true
@@ -474,11 +601,11 @@ function AutoCDM.SetEnabled(v)
     AutoCDM.RefreshAll()
 end
 
--- 一次性重新同步所有覆盖层（增量同步，不清空现有数据源）：
---   1. 路径 A：重扫两个 CDM viewer 的当前帧（UpdateFromItem 会设置 viewerItem）
---   2. 路径 B：重扫 extraTracked 列表
---   3. 只隐藏本次扫描没有被更新的 CDM overlay（CDM 已不再追踪的 buff）
--- ⚠️ 不清空现有 viewerItem 再重建（那样会打断 RefreshData hook 的实时性，导致延迟）
+-- 一次性重新同步所有覆盖层：
+--   1. 重建按钮法术名索引（动作条/专精可能变化）
+--   2. 路径 A：全局 ResolveAll（重判每个按钮当前该显示哪个 CDM 帧，自动处理帧复用/同名多帧）
+--   3. 路径 B：重扫 extraTracked 列表
+-- ResolveAll 内部已做"隐藏未被指派的覆盖层"，无需额外的 stillValid 滞后判断 → 不再有延迟/不同步。
 function AutoCDM.RefreshAll()
     if not AutoCDM.IsEnabled() then
         for _, ov in pairs(autoOverlays) do
@@ -488,71 +615,14 @@ function AutoCDM.RefreshAll()
         return
     end
 
-    -- 记录本次扫描发现的 CDM button 集合（用于后续清理过期 overlay）
-    local seenCDMButtons = {}
-
-    -- 路径 A：CDM 自动发现（UpdateFromItem 会设置 ov.viewerItem）
-    for _, viewerName in ipairs(VIEWER_NAMES) do
-        local viewer = _G[viewerName]
-        if viewer and viewer.GetItemFrames then
-            local ok, frames = pcall(viewer.GetItemFrames, viewer)
-            if ok and frames then
-                for _, f in ipairs(frames) do
-                    if f.cooldownID then
-                        UpdateFromItem(f)
-                        -- 记录哪些 button 被本次扫描更新了
-                        -- UpdateFromItem 内部会匹配按钮并设置 viewerItem
-                        -- 这里简单标记：遍历 autoOverlays 找有 viewerItem==f 的
-                    end
-                end
-            end
-        end
-    end
-
-    -- 标记本次扫描中被更新的 overlay（有 viewerItem 且 viewerItem 仍有效的）
-    for _, ov in pairs(autoOverlays) do
-        if ov.viewerItem then
-            -- 检查 viewerItem 是否还在当前 CDM frames 里
-            local stillValid = false
-            for _, viewerName in ipairs(VIEWER_NAMES) do
-                local viewer = _G[viewerName]
-                if viewer and viewer.GetItemFrames then
-                    local ok, frames = pcall(viewer.GetItemFrames, viewer)
-                    if ok and frames then
-                        for _, f in ipairs(frames) do
-                            if f == ov.viewerItem then
-                                stillValid = true
-                                break
-                            end
-                        end
-                    end
-                end
-                if stillValid then break end
-            end
-            if not stillValid then
-                ov.viewerItem = nil
-                ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
-            end
-        end
-    end
-
-    -- 路径 B：额外追踪回退
-    RefreshAllExtraTracked()
-
-    -- 重新定位所有有数据源的 overlay（按钮可能移动了）
-    for _, ov in pairs(autoOverlays) do
-        if ov.viewerItem or (ov.extraTracked and ov.auraInstanceID) then
-            if not PositionOverlay(ov) then
-                ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
-            end
-        end
-    end
+    RebuildButtonIndex()
+    ResolveAll()
 end
 
 -- 供本模块 hook 调用（RefreshData 回调中）
 function AutoCDM.OnItemRefresh(item)
     if not AutoCDM.IsEnabled() then return end
-    UpdateFromItem(item)
+    ScheduleResolve()
 end
 
 -- =========================================================
@@ -578,27 +648,22 @@ evFrame:SetScript("OnEvent", function(_, event, arg1)
         C_Timer.After(0.5, function() InstallHooks(); AutoCDM.RefreshAll() end)
         C_Timer.After(2.0, function() InstallHooks(); AutoCDM.RefreshAll() end)
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        -- ⚠️ 只重新定位 overlay（按钮可能移动了位置），不清空数据源！
-        -- 清空数据源会打断 RefreshData hook 的实时性 → 显示延迟
-        -- RefreshData hook 仍然实时驱动时间/层数更新
-        for _, ov in pairs(autoOverlays) do
-            if ov.viewerItem or (ov.extraTracked and ov.auraInstanceID) then
-                if not PositionOverlay(ov) then
-                    ov.cd:Hide(); ov.stackText:Hide(); ov.container:Hide()
-                end
-            end
-        end
+        -- 动作条槽位/分页/姿态变化：按钮上的法术可能已变 → 重建名索引并全局重解析。
+        -- 注意：这里必须【重建索引 + 重解析】，不能只重定位——
+        -- 旧写法的"只重定位不动数据源"正是导致与 CDM 不同步/延迟的元凶之一。
+        -- ResolveAll 每次都从当前 CDM 帧重新判定，RefreshData hook 仍持续驱动实时更新。
+        RebuildButtonIndex()
+        ScheduleResolve()
     elseif event == "UNIT_AURA" then
         -- 只响应玩家自身的光环变化，加 0.5 秒防抖避免战斗中频繁遍历
-        -- ⚠️ 战斗中不触发名字遍历（aura.name 是 secret string，比较会 taint）
-        --    战斗中 extraTracked overlay 靠已建立的 auraInstanceID + GetAuraDuration 安全更新
-        if arg1 == "player" and not auraUpdatePending and not InCombatLockdown() then
+        -- ✅ 战斗中也会触发：自 v3 起 QueryPlayerAura 用 FindAuraByName（暴雪内部匹配，
+        --    addon 不碰 secret 字符串），战斗安全 → 战斗中施放/刷新 extraTracked buff
+        --    （如真言术韧）也能立即发现并显示，无需等脱战。
+        if arg1 == "player" and not auraUpdatePending then
             auraUpdatePending = true
             C_Timer.After(0.5, function()
                 auraUpdatePending = false
-                if not InCombatLockdown() then
-                    RefreshAllExtraTracked()
-                end
+                RefreshAllExtraTracked()
             end)
         end
     else
@@ -684,7 +749,8 @@ function AutoCDM.DebugPrint()
     local extOv = 0
     for _, ov in pairs(autoOverlays) do
         totalOv = totalOv + 1
-        if ov.viewerItem then cdmOv = cdmOv + 1 end
+        -- path-A 已不再使用 viewerItem（改存抓取的 unit/instanceID），故用 unit+非extraTracked 判定
+        if ov.unit and ov.auraInstanceID and not ov.extraTracked then cdmOv = cdmOv + 1 end
         if ov.extraTracked then extOv = extOv + 1 end
     end
     print("  [汇总] overlay总数=" .. totalOv .. " CDM路径=" .. cdmOv .. " Extra路径=" .. extOv)
