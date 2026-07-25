@@ -498,14 +498,28 @@ function BAR.DebugPrint()
     end
 end
 
+-- 动作条 / 形态 / 页面 / 载具切换事件集合。
+-- 御龙术(Dragonriding)切换走 bonus/override bar 机制，未必触发 ACTIONBAR_SLOT_CHANGED，
+-- 故同时监听这些事件，统一驱动覆盖层重定位 + 隐藏（解决"动作条切换后数字残留"）。
+local actionbarEvents = {
+    ACTIONBAR_SLOT_CHANGED       = true,
+    ACTIONBAR_PAGE_CHANGED      = true,
+    UPDATE_BONUS_ACTIONBAR      = true,
+    UPDATE_OVERRIDE_ACTIONBAR   = true,
+    UPDATE_SHAPESHIFT_FORM      = true,
+    UPDATE_POSSESS_BAR          = true,
+    UPDATE_MULTI_CAST_ACTIONBAR = true,
+    PLAYER_TALENT_UPDATE        = true,
+}
+
 -- 事件驱动
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
-frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+for ev in pairs(actionbarEvents) do frame:RegisterEvent(ev) end
 
 frame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
@@ -520,16 +534,20 @@ frame:SetScript("OnEvent", function(_, event)
         C_Timer.After(0.5, function() EnsureHooks(); BAR.Rescan() end)
     elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" then
         BAR.SelectSpec()        -- 切换专精 -> 切换配置
-    elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        -- 动作条槽位变化（进出姿态/切换栏等）：重建覆盖层 + 重新同步显示
+    elseif actionbarEvents[event] then
+        -- 动作条 / 形态 / 页面 / 载具 / 御龙术切换：重建覆盖层 + 重新同步显示。
+        -- 御龙术走 bonus/override bar，未必触发 ACTIONBAR_SLOT_CHANGED，故统一在此处理。
+        -- 延迟 0.1s：等动作条布局完成后再读按钮坐标 / 重算匹配，避免切换瞬间取到旧状态。
         C_Timer.After(0.1, function()
             if BAR.RebuildOverlays then BAR.RebuildOverlays() end
             if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+            if BAR.AutoCDM and BAR.AutoCDM.RefreshAll then BAR.AutoCDM.RefreshAll() end
         end)
     elseif event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
         -- 进出战斗：重新同步一次（战斗中靠 CDM item 的 RefreshData 实时驱动，此处补漏）
         C_Timer.After(0.1, function()
             if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+            if BAR.AutoCDM and BAR.AutoCDM.RefreshAll then BAR.AutoCDM.RefreshAll() end
         end)
     end
 end)
