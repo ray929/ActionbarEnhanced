@@ -19,14 +19,24 @@ S.FONT_SIZE = 14                     -- 字号（时间、层数通用，像素�
 S.OUTLINE = "THICKOUTLINE"           -- 重描边样式（THICKOUTLINE / OUTLINE / nil）
 
 -- =========================================================
--- 手动绑定系统（Overlay.lua）配色
+-- 统一配色（手动 Overlay + 自动 AutoCDM 共用）
+--   时间（倒计时数字）按【自身 / 别人buff / 别人debuff】染不同色
+--   层数统一粉红色
 -- =========================================================
-S.MANUAL_TIME_COLOR  = { 0xF0/255, 0xFF/255, 0x00/255 }  -- 剩余时间：F0FF00 黄
-S.MANUAL_STACK_COLOR = { 0x00/255, 0xFD/255, 0xFF/255 }  -- 层数：    00FDFF 青
+S.TIME_COLOR_SELF         = { 0.20, 1.00, 0.20 }  -- 自身：鲜绿
+S.TIME_COLOR_OTHER_BUFF   = { 1.00, 1.00, 0.00 }  -- 别人的 buff：#FFFF00 纯黄
+S.TIME_COLOR_OTHER_DEBUFF = { 1.00, 0.20, 0.20 }  -- 别人的 debuff：鲜红
+S.STACK_COLOR             = { 0x3F/255, 0xC7/255, 0xEB/255 }  -- 层数：#3FC7EB
 
--- =========================================================
--- 自动发现系统（AutoCDM.lua）配色（按归属上色）
--- =========================================================
-S.AUTO_OWN_TIME_COLOR   = { 0.30, 1.00, 0.30 }   -- 自己的增益：绿
-S.AUTO_OTHER_TIME_COLOR = { 1.00, 0.30, 0.30 }   -- 别人的增益：红
-S.AUTO_STACK_COLOR      = { 1.00, 1.00, 0.00 }   -- 层数：黄 (F0FF00)
+-- 取时间颜色：自身=浅绿；别人 debuff=浅紫；别人 buff（及其它）=黄
+-- ⚠️ 必须用 isHarmful 布尔判定 debuff：新客户端 auraData.auraType 是 Enum.AuraType【数字】，
+--    不是 "Magic" 等字符串，旧写法用字符串比对永远失败 → 别人的 debuff 全误判成 buff（黄）。
+function S.GetTimeColor(unit, isHarmful)
+    if unit == "player" then
+        return S.TIME_COLOR_SELF
+    elseif isHarmful then
+        return S.TIME_COLOR_OTHER_DEBUFF
+    else
+        return S.TIME_COLOR_OTHER_BUFF
+    end
+end

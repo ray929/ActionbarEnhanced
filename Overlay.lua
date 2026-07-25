@@ -1,5 +1,5 @@
 -- ButtonAurasReborn/Overlay.lua
--- 把"已绑定"的 CDM 增益的【剩余时间(F0FF00 黄,左下)】与【层数(00FDFF 青,左上)】渲染到原生动作条按钮上（字号硬代码 20，均带重描边）。
+-- 把"已绑定"的 CDM 增益的【剩余时间(按自身/别人buff/debuff 染色,左下)】与【层数(粉红,左上)】渲染到原生动作条按钮上（字号/颜色取自 Settings，均带重描边）。
 --
 -- ⚠️ 战斗中数据来源（踩过的坑，已修正）：
 --   C_UnitAuras.GetAuraDataByAuraInstanceID 返回的 duration/expirationTime/applications
@@ -57,11 +57,11 @@ end
 --       SetTimerTextColor 在 12.x 不存在——两者都会静默失败 → 字体/颜色退回默认白色。
 -- 正确：cd:GetCountdownFontString() 拿到内置 FontString，直接 SetFont + SetTextColor。
 -- 该 FontString 要等冷却真正运行、暴雪渲染出数字后才存在，故每次更新后都调一次（幂等、廉价）。
-local function StyleCountdown(cd)
+local function StyleCountdown(cd, color)
     local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
     if not fs then return end
     fs:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
-    fs:SetTextColor(S.MANUAL_TIME_COLOR[1], S.MANUAL_TIME_COLOR[2], S.MANUAL_TIME_COLOR[3])  -- F0FF00 黄
+    if color then fs:SetTextColor(color[1], color[2], color[3]) end
 end
 
 -- 创建一个"计时器(Cooldown) + 层数(FontString)"显示单元，挂到 parent 上。
@@ -93,7 +93,7 @@ local function CreateAuraDisplay(parent)
 
     local stack = container:CreateFontString(nil, "OVERLAY")
     stack:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)  -- 层数：集中字号 + 重描边
-    stack:SetTextColor(S.MANUAL_STACK_COLOR[1], S.MANUAL_STACK_COLOR[2], S.MANUAL_STACK_COLOR[3])
+    stack:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
     stack:SetPoint("TOPLEFT", container, "TOPLEFT", 2, -2)  -- 层数显示在【左上】
     stack:SetJustifyH("LEFT")
     stack:Hide()
@@ -141,13 +141,23 @@ end
 local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt)
     local showTimeAllowed = (showTimeOpt ~= false)
     local showStackAllowed = (showStackOpt ~= false)
+    local unit = frame and frame.auraDataUnit
+    local instID = frame and frame.auraInstanceID
+    -- 取 debuff 判定（仅读非 secret 的 isHarmful 布尔，pcall 兜底）用于 buff/debuff 配色
+    -- ⚠️ 不能用 auraType 字符串比对：新客户端 auraType 是 Enum 数字，比对永远失败 → 全误判成 buff。
+    local isHarmful
+    if unit and instID then
+        local ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, instID)
+        if ok and data then isHarmful = data.isHarmful end
+    end
+
     local showTime = false
-    if showTimeAllowed and frame and frame.auraDataUnit and frame.auraInstanceID then
-        local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, frame.auraDataUnit, frame.auraInstanceID)
+    if showTimeAllowed and unit and instID then
+        local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, unit, instID)
         if ok and durObj then
             cd:SetCooldownFromDurationObject(durObj, true)
             cd:Show()
-            StyleCountdown(cd)  -- 上 F0FF00 黄 + 硬代码字号 + 重描边（拿内置倒计时 FontString 设）
+            StyleCountdown(cd, S.GetTimeColor(unit, isHarmful))  -- 按自身/别人buff/debuff 上色
             showTime = true
         end
     end
@@ -156,9 +166,10 @@ local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt)
     -- 层数：用 GetAuraApplicationDisplayCount（CDMButtonAuras 同款、战斗中可用、非 secret 访问器）。
     -- 直接 SetText 原始返回值；>1 的判断整个放进 pcall，避免任何 secret 字符串比较导致 taint 崩溃。
     -- 注意：frame.Applications.Applications:GetText() 在本客户端返回 secret 字符串，绝不能取/比较。
+    -- 颜色统一为粉红（S.STACK_COLOR）。
     local showStack, stackVal = false, nil
-    if showStackAllowed and frame and frame.auraDataUnit and frame.auraInstanceID then
-        local okC, cnt = pcall(C_UnitAuras.GetAuraApplicationDisplayCount, frame.auraDataUnit, frame.auraInstanceID)
+    if showStackAllowed and unit and instID then
+        local okC, cnt = pcall(C_UnitAuras.GetAuraApplicationDisplayCount, unit, instID)
         if okC then
             local okN, n = pcall(function()
                 if cnt == nil then return nil end
@@ -172,6 +183,7 @@ local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt)
     end
     if showStack then
         stack:SetText(stackVal)
+        stack:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
         stack:Show()
     else
         stack:Hide()

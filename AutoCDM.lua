@@ -3,7 +3,7 @@
 -- 与 CDMButtonAuras 完全一致）。渲染层同样对齐 CDM：
 --   · 覆盖层 = 动作按钮的子帧（随按钮自动定位，零延迟，无 GetRect 重定位）；
 --   · Cooldown 倒计时（SetCooldownFromDurationObject 后自动逐秒跳动）；
---   · Glow 按归属上色（player=绿 / 其他=红，ADD 混合）；
+--   · 时间（倒计时数字）按【自身/别人buff/别人debuff】染不同色，层数统一粉红（与手动系统共用 Settings 配色）；
 --   · 层数 NumberFontNormal，置于左上。
 -- 仅变量/函数名按本项目习惯调整，行为与 CDMButtonAuras 一一对应、无任何逻辑差异。
 --
@@ -44,7 +44,7 @@ local overlays = {}   -- [actionButton] = overlayFrame
 -- 覆盖层（对齐 CDMButtonAurasOverlayMixin）
 -- =========================================================
 -- 与 CDM 一样：覆盖层是动作按钮的子帧，尺寸=按钮尺寸，Cooldown 锚定到按钮 icon，
--- Glow 用于归属上色，Stacks 显示层数。不再使用 UIParent 容器 / GetRect 重定位。
+-- Stacks 显示层数。不再使用 UIParent 容器 / GetRect 重定位。
 local function GetOverlay(actionButton)
     local ov = overlays[actionButton]
     if not ov then
@@ -69,17 +69,6 @@ local function GetOverlay(actionButton)
         ov.Cooldown = cd
         -- 倒计时数字的实际 FontString（通过它控制字号 / 描边 / 颜色，见 UpdateOverlay）
 
-        -- Glow：对齐 CDM —— 用 CDM 的真实辉光贴图（CDMButtonAuras 已加载，路径可用），
-        -- 按归属上色（player=绿 / 其他=红），ADD 混合，半透明。
-        -- ⚠️ 之前用 SetColorTexture(1,1,1,1) 纯白方块会洗白按钮/数字，导致"看着没正常显示"。
-        local glow = ov:CreateTexture(nil, "ARTWORK")
-        glow:SetAllPoints(ov)
-        glow:SetTexture("Interface\\Addons\\CDMButtonAuras\\Textures\\Overlay")
-        glow:SetBlendMode("ADD")
-        glow:SetAlpha(0.5)
-        glow:Hide()
-        ov.Glow = glow
-
         -- 层数（对齐 CDM：左上；字体/字号/颜色在 UpdateOverlay 统一应用 Settings）
         local stacks = ov:CreateFontString(nil, "OVERLAY")
         stacks:SetPoint("TOPLEFT", 5, -5)
@@ -93,9 +82,10 @@ local function GetOverlay(actionButton)
     return ov
 end
 
-local function SetAura(ov, unit, auraInstanceID)
+local function SetAura(ov, unit, auraInstanceID, isHarmful)
     ov.unit = unit
     ov.auraInstanceID = auraInstanceID
+    ov.isHarmful = isHarmful
 end
 
 -- 对齐 CDMButtonAurasOverlayMixin:Update（逻辑完全一致），并叠加 Settings 的字体 / 配色
@@ -114,21 +104,10 @@ UpdateOverlay = function(ov)
         ov.Stacks:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
         local count = C_UnitAuras.GetAuraApplicationDisplayCount(ov.unit, ov.auraInstanceID)
         ov.Stacks:SetText(count)
-        ov.Stacks:SetTextColor(S.AUTO_STACK_COLOR[1], S.AUTO_STACK_COLOR[2], S.AUTO_STACK_COLOR[3])
+        ov.Stacks:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])  -- 层数：粉红
 
-        -- 按归属取配色：player=自己的色 / 其他=别人的色（Settings）
-        local glowColor, timeColor
-        if ov.unit == "player" then
-            glowColor = S.AUTO_OWN_TIME_COLOR
-            timeColor = S.AUTO_OWN_TIME_COLOR
-        else
-            glowColor = S.AUTO_OTHER_TIME_COLOR
-            timeColor = S.AUTO_OTHER_TIME_COLOR
-        end
-
-        -- Glow 归属上色（保留 0.5 透明度，与原 CDM 一致）
-        ov.Glow:SetVertexColor(glowColor[1], glowColor[2], glowColor[3], 0.5)
-        ov.Glow:Show()
+        -- 时间（倒计时数字）配色：自身=浅绿；别人 buff=黄；别人 debuff=浅紫
+        local timeColor = S.GetTimeColor(ov.unit, ov.isHarmful)
 
         -- 倒计时数字：通过内部 FontString 控制字体 / 字号 / 描边 / 颜色（Settings）
         local cds = ov.Cooldown:GetCountdownFontString()
@@ -207,7 +186,7 @@ local function UpdateFromAura(unit, auraData)
         local buttonList = GetActionButtonList(auraData.spellId)
         for _, button in ipairs(buttonList) do
             local overlay = GetOverlay(button)
-            SetAura(overlay, unit, auraData.auraInstanceID)
+            SetAura(overlay, unit, auraData.auraInstanceID, auraData.isHarmful)
             UpdateOverlay(overlay)
         end
     end
@@ -231,10 +210,17 @@ local function UpdateFromItem(item)
         D(("UpdateFromItem cd=%s spell=%s unit=%s inst=%s")
             :format(tostring(item.cooldownID), tostring(cdInfo.spellID),
                     tostring(item.auraDataUnit), tostring(item.auraInstanceID)))
+        -- 取 debuff 判定（仅读非 secret 的 isHarmful 布尔，pcall 兜底，不碰受保护数字）
+        -- ⚠️ 不能用 auraType 字符串比对：新客户端 auraType 是 Enum 数字，比对永远失败。
+        local isHarmful
+        if item.auraDataUnit and item.auraInstanceID then
+            local ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, item.auraDataUnit, item.auraInstanceID)
+            if ok and data then isHarmful = data.isHarmful end
+        end
         local buttonList = GetActionButtonList(cdInfo.spellID)
         for _, button in ipairs(buttonList) do
             local overlay = GetOverlay(button)
-            SetAura(overlay, item.auraDataUnit, item.auraInstanceID)
+            SetAura(overlay, item.auraDataUnit, item.auraInstanceID, isHarmful)
             UpdateOverlay(overlay)
         end
     end
@@ -268,7 +254,7 @@ end
 local function RefreshAllOverlays()
     D("RefreshAll")
     for _, overlay in pairs(overlays) do
-        SetAura(overlay, nil, nil)
+        SetAura(overlay, nil, nil, nil)
     end
     for _, viewerName in ipairs(VIEWER_NAMES) do
         UpdateFromViewer(_G[viewerName])
