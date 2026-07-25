@@ -35,9 +35,9 @@ refreshBtn:SetScript("OnClick", function()
     BAR.BuildList()
 end)
 
--- 状态文本
-local status = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-status:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 10)
+-- 状态文本 不需要 我手动注释了
+-- local status = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+-- status:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 10)
 
 -- 当前配置所属专精（切专精时实时更新），放在标题下方、列表上方
 -- 不需要显示这部分 我手动注释了
@@ -75,9 +75,14 @@ autoChk:SetScript("OnClick", function()
     if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(autoChk:GetChecked()) end
 end)
 
+local manualLbl = autoChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+manualLbl:SetPoint("TOPLEFT", autoLbl, "BOTTOMLEFT", 0, -15)
+manualLbl:SetText("手动配置")
+
+
 -- 滚动列表（置于外观+专精标签下方）
 local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -150)
+scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -90)
 scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 28)
 
 local scrollChild = CreateFrame("Frame", nil, scroll)
@@ -130,11 +135,11 @@ local function MakeRow(parent, idx)
 
     -- 时间位置下拉（默认 / 上 / 下 / 左 / 右）：驱动 Overlay 的 timePos，立即刷新定位
     local posLabel = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    posLabel:SetPoint("LEFT", row.ChkStack, "RIGHT", 10, 0)
+    posLabel:SetPoint("LEFT", row.ChkStack, "RIGHT", 60, 0)
     posLabel:SetText("位置")
     row.PosTime = CreateFrame("Frame", "BARRow" .. idx .. "PosTime", row, "UIDropDownMenuTemplate")
     row.PosTime:SetPoint("LEFT", posLabel, "RIGHT", 4, 0)
-    UIDropDownMenu_SetWidth(row.PosTime, 95)
+    UIDropDownMenu_SetWidth(row.PosTime, 80)
     UIDropDownMenu_JustifyText(row.PosTime, "LEFT")
     row.PosTime.noResize = true
     UIDropDownMenu_Initialize(row.PosTime, function(self, level)
@@ -217,18 +222,19 @@ local function MakeRow(parent, idx)
     return row
 end
 
-function BAR.UpdateStatus()
-    local total, bound = 0, 0
-    for _ in pairs(BAR.knownBuffs) do total = total + 1 end
-    local binds = BAR.db and BAR.db.bindings
-    if binds then
-        for _, v in pairs(binds) do
-            local bn = (type(v) == "table") and v.button or (type(v) == "string" and v or nil)
-            if bn and bn ~= "" then bound = bound + 1 end
-        end
-    end
-    status:SetText("已捕获 " .. total .. " 个增益 ｜ 已绑定 " .. bound .. " 个按钮")
-end
+-- 不需要 我手动注释了
+-- function BAR.UpdateStatus()
+--     local total, bound = 0, 0
+--     for _ in pairs(BAR.knownBuffs) do total = total + 1 end
+--     local binds = BAR.db and BAR.db.bindings
+--     if binds then
+--         for _, v in pairs(binds) do
+--             local bn = (type(v) == "table") and v.button or (type(v) == "string" and v or nil)
+--             if bn and bn ~= "" then bound = bound + 1 end
+--         end
+--     end
+--     status:SetText("已捕获 " .. total .. " 个增益 ｜ 已绑定 " .. bound .. " 个按钮")
+-- end
 
 function BAR.BuildList()
     if not panel or not panel.scrollChild then return end
@@ -276,7 +282,7 @@ function BAR.BuildList()
     end
 
     child:SetHeight(math.max(1, #buffs * ROW_H + 8))
-    BAR.UpdateStatus()
+    --BAR.UpdateStatus()  --不需要显示这部分
 end
 
 -- 面板显示时重新扫描并重建列表
