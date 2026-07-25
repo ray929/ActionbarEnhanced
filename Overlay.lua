@@ -124,8 +124,8 @@ local function PositionOverlay(ov)
     -- 计时数字落在按钮【左下】区域：cd 占容器左下 62%（数字在该矩形内居中 → 视觉贴左下）
     if ov.cd then
         ov.cd:ClearAllPoints()
-        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -3)
-        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 4)
+        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -6)
+        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
     end
     return true
 end
