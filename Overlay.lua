@@ -60,7 +60,10 @@ end
 local function StyleCountdown(cd, color)
     local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
     if not fs then return end
-    fs:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+    -- 时间字号：默认基础上大 10%，并按按钮缩放 r（手动容器在 UIParent 坐标系，
+    -- 需 ×r 才与 AutoCDM 的按钮子帧字号视觉一致）
+    local r = cd.__BARr or 1
+    fs:SetFont(S.FONT, math.max(1, math.floor(S.FONT_SIZE * 1.1 * r + 0.5)), S.OUTLINE)
     if color then fs:SetTextColor(color[1], color[2], color[3]) end
 end
 
@@ -92,11 +95,10 @@ local function CreateAuraDisplay(parent)
     cd:Hide()
 
     local stack = container:CreateFontString(nil, "OVERLAY")
-    stack:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)  -- 层数：集中字号 + 重描边
     stack:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
-    stack:SetPoint("TOPLEFT", container, "TOPLEFT", 2, -2)  -- 层数显示在【左上】
     stack:SetJustifyH("LEFT")
     stack:Hide()
+    -- 位置/字号留到 PositionOverlay 里按按钮缩放 r 设置（与 AutoCDM 的按钮子帧视觉对齐）
 
     return cd, stack, container
 end
@@ -121,11 +123,38 @@ local function PositionOverlay(ov)
     ov.container:ClearAllPoints()
     ov.container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
     ov.container:SetSize(cw, ch)
-    -- 计时数字落在按钮【左下】区域：cd 占容器左下 62%（数字在该矩形内居中 → 视觉贴左下）
+    -- 时间矩形（倒计时数字）：
+    --   默认：左下角 62% 框（贴近按钮左下角，与原实现一致）。
+    --   上/下/左/右：0.68 方块（比默认大 10%）居中于按钮对应边外 10px。
+    --   cw/ch 已含按钮缩放 r，满足"大小按照按钮缩放"。
     if ov.cd then
         ov.cd:ClearAllPoints()
-        ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -6)
-        ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
+        local pos = (BAR.GetBindingOption and BAR.GetBindingOption(ov.spellID, "timePos")) or "默认"
+        if pos ~= "上" and pos ~= "下" and pos ~= "左" and pos ~= "右" then pos = "默认" end
+        if pos == "上" then
+            ov.cd:SetSize(cw * 0.68, ch * 0.68)
+            ov.cd:SetPoint("CENTER", ov.container, "TOP", 0, 10 * r)
+        elseif pos == "下" then
+            ov.cd:SetSize(cw * 0.68, ch * 0.68)
+            ov.cd:SetPoint("CENTER", ov.container, "BOTTOM", 0, -10 * r)
+        elseif pos == "左" then
+            ov.cd:SetSize(cw * 0.68, ch * 0.68)
+            ov.cd:SetPoint("CENTER", ov.container, "LEFT", -10 * r, 0)
+        elseif pos == "右" then
+            ov.cd:SetSize(cw * 0.68, ch * 0.68)
+            ov.cd:SetPoint("CENTER", ov.container, "RIGHT", 10 * r, 0)
+        else  -- 默认：左下角 62% 框（贴近按钮左下角，与原实现一致）
+            ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -6)
+            ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
+        end
+        ov.cd.__BARr = r  -- 供 StyleCountdown 按按钮缩放算字号
+    end
+
+    -- 层数（与 AutoCDM 对齐：左上 5, -5，字体按按钮缩放 r 放大，与按钮子帧字号视觉一致）
+    if ov.stackText then
+        ov.stackText:ClearAllPoints()
+        ov.stackText:SetPoint("TOPLEFT", ov.container, "TOPLEFT", 5 * r, -5 * r)
+        ov.stackText:SetFont(S.FONT, math.max(1, math.floor(S.FONT_SIZE * r + 0.5)), S.OUTLINE)
     end
     return true
 end
@@ -169,16 +198,12 @@ local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt)
     -- 颜色统一为粉红（S.STACK_COLOR）。
     local showStack, stackVal = false, nil
     if showStackAllowed and unit and instID then
+        -- 与 AutoCDM 对齐：只要光环存在（cnt ~= nil）就显示原始层数（含 "1"），不隐藏单层的 1。
+        -- 旧逻辑用 n > 1 闸门，导致不可叠加/单层光环（如痛击）的层数永不显示，与 AutoCDM 行为不一致。
         local okC, cnt = pcall(C_UnitAuras.GetAuraApplicationDisplayCount, unit, instID)
-        if okC then
-            local okN, n = pcall(function()
-                if cnt == nil then return nil end
-                return tonumber(cnt)
-            end)
-            if okN and n and n > 1 then
-                showStack = true
-                stackVal = cnt
-            end
+        if okC and cnt ~= nil then
+            showStack = true
+            stackVal = cnt
         end
     end
     if showStack then
@@ -194,7 +219,7 @@ local function MakeOverlay(spellID, buttonName)
     local btn = _G[buttonName]
     if not btn then return nil end
     local cd, stack, container = CreateAuraDisplay(btn)
-    local ov = { buttonName = buttonName, button = btn, cd = cd, stackText = stack, container = container }
+    local ov = { buttonName = buttonName, button = btn, cd = cd, stackText = stack, container = container, spellID = spellID }
     PositionOverlay(ov)
     return ov
 end

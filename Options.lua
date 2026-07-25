@@ -4,6 +4,13 @@
 local BAR = ButtonAurasReborn
 if not BAR then return end
 
+-- 读取某绑定的时间位置（未设置返回 "默认"）
+local function GetTimePos(spellID)
+    local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
+    if type(b) == "table" and b.timePos then return b.timePos end
+    return "默认"
+end
+
 -- 注册设置面板（画布分类）
 local panel = CreateFrame("Frame")
 panel.name = "ButtonAurasReborn"
@@ -33,18 +40,19 @@ local status = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 status:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 10)
 
 -- 当前配置所属专精（切专精时实时更新），放在标题下方、列表上方
-local specLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-specLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -36)
-function BAR.RefreshSpecLabel()
-    local name = "通用"
-    local ok, idx = pcall(GetSpecialization)
-    if ok and idx and idx ~= 0 then
-        local _, sname = pcall(GetSpecializationInfo, idx)
-        if sname then name = sname end
-    end
-    specLabel:SetText("当前配置专精：" .. name)
-end
-BAR.RefreshSpecLabel()
+-- 不需要显示这部分 我手动注释了
+-- local specLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+-- specLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -36)
+-- function BAR.RefreshSpecLabel()
+--     local name = "通用"
+--     local ok, idx = pcall(GetSpecialization)
+--     if ok and idx and idx ~= 0 then
+--         local _, sname = pcall(GetSpecializationInfo, idx)
+--         if sname then name = sname end
+--     end
+--     specLabel:SetText("当前配置专精：" .. name)
+-- end
+-- BAR.RefreshSpecLabel()
 
 -- 自动发现系统开关（与手动绑定系统【独立】，由 AutoCDM.lua 实现）
 -- 勾选后自动显示 CDM 追踪的全部增益（无需手动绑定），文字按归属上色（自己绿/别人红/层数黄）。
@@ -62,7 +70,7 @@ if BAR.AutoCDM then
 end
 local autoLbl = autoChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 autoLbl:SetPoint("LEFT", autoChk, "RIGHT", 6, 0)
-autoLbl:SetText("自动发现：显示 CDM 追踪的全部增益（按归属上色：自己绿 / 别人红 / 层数黄）")
+autoLbl:SetText("自动发现（基于CDMButtonAuras修改而得）")
 autoChk:SetScript("OnClick", function()
     if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(autoChk:GetChecked()) end
 end)
@@ -91,7 +99,7 @@ local function MakeRow(parent, idx)
 
     row.Name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.Name:SetPoint("LEFT", row.Icon, "RIGHT", 10, 0)
-    row.Name:SetPoint("RIGHT", row, "RIGHT", -420, 0)
+    row.Name:SetPoint("RIGHT", row, "RIGHT", -500, 0)
     row.Name:SetJustifyH("LEFT")
     row.Name:SetTextColor(1, 1, 1)
 
@@ -116,14 +124,40 @@ local function MakeRow(parent, idx)
         BAR.SetBindingOption(row.spellID, "showTime", row.ChkTime:GetChecked())
     end)
 
-    row.ChkStack = MakeToggle(row.ChkTime, 55, "BARRow" .. idx .. "ChkStack", "层数", function()
+    row.ChkStack = MakeToggle(row.ChkTime, 40, "BARRow" .. idx .. "ChkStack", "层数", function()
         BAR.SetBindingOption(row.spellID, "showStack", row.ChkStack:GetChecked())
+    end)
+
+    -- 时间位置下拉（默认 / 上 / 下 / 左 / 右）：驱动 Overlay 的 timePos，立即刷新定位
+    local posLabel = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    posLabel:SetPoint("LEFT", row.ChkStack, "RIGHT", 10, 0)
+    posLabel:SetText("位置")
+    row.PosTime = CreateFrame("Frame", "BARRow" .. idx .. "PosTime", row, "UIDropDownMenuTemplate")
+    row.PosTime:SetPoint("LEFT", posLabel, "RIGHT", 4, 0)
+    UIDropDownMenu_SetWidth(row.PosTime, 95)
+    UIDropDownMenu_JustifyText(row.PosTime, "LEFT")
+    row.PosTime.noResize = true
+    UIDropDownMenu_Initialize(row.PosTime, function(self, level)
+        local sid = row.PosTime.spellID
+        local opts = { "默认", "上", "下", "左", "右" }
+        for _, o in ipairs(opts) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = o
+            info.value = o
+            info.func = function()
+                BAR.SetBindingOption(sid, "timePos", o)
+                UIDropDownMenu_SetText(row.PosTime, o)
+                if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+            end
+            info.checked = (GetTimePos(sid) == o)
+            UIDropDownMenu_AddButton(info, level)
+        end
     end)
 
     -- 右侧：绑定动作条按钮的下拉框
     row.DropDown = CreateFrame("Frame", "BARRow" .. idx .. "DropDown", row, "UIDropDownMenuTemplate")
     row.DropDown:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-    UIDropDownMenu_SetWidth(row.DropDown, 210)
+    UIDropDownMenu_SetWidth(row.DropDown, 130)
     UIDropDownMenu_JustifyText(row.DropDown, "LEFT")
     row.DropDown.noResize = true
     row.DropDown.spellID = nil
@@ -232,6 +266,8 @@ function BAR.BuildList()
         UIDropDownMenu_SetText(row.DropDown, BAR.GetBarLabelForButton(bound))
         row.ChkTime:SetChecked(BAR.GetBindingOption(b.spellID, "showTime"))
         row.ChkStack:SetChecked(BAR.GetBindingOption(b.spellID, "showStack"))
+        row.PosTime.spellID = b.spellID
+        UIDropDownMenu_SetText(row.PosTime, GetTimePos(b.spellID))
         row:SetShown(true)
     end
     -- 隐藏多余的行
