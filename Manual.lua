@@ -851,9 +851,8 @@ function BAR.UpdateOverlayForSpell(spellID, frame)
         return
     end
     if ov.container then ov.container:Show() end
-    local showTime  = BAR.GetBindingOption and BAR.GetBindingOption(spellID, "showTime")
-    local showStack = BAR.GetBindingOption and BAR.GetBindingOption(spellID, "showStack")
-    UpdateAuraDisplay(ov.cd, ov.stackText, frame, showTime, showStack)
+    -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
+    UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true)
 end
 
 -- 一次性重新同步所有覆盖层：登录 / 切换专精 / 动作条变动 / 重新扫描后调用。
@@ -868,9 +867,8 @@ function BAR.RefreshAllOverlays()
         else
             if ov.container then ov.container:Show() end
             local frame = BAR.FindFrameForSpell and BAR.FindFrameForSpell(sid)
-            local showTime  = BAR.GetBindingOption and BAR.GetBindingOption(sid, "showTime")
-            local showStack = BAR.GetBindingOption and BAR.GetBindingOption(sid, "showStack")
-            UpdateAuraDisplay(ov.cd, ov.stackText, frame, showTime, showStack)
+            -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
+            UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true)
         end
     end
 end

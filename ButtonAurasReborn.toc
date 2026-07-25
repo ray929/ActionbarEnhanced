@@ -5,6 +5,7 @@
 ## Version: 0.1.0
 ## SavedVariables: ButtonAurasRebornDB
 ## DefaultState: enabled
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
 
 Settings.lua
 Manual.lua

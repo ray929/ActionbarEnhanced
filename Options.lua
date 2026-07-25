@@ -15,10 +15,36 @@ end
 local panel = CreateFrame("Frame")
 panel.name = "ButtonAurasReborn"
 
+local addonName = "ButtonAurasReborn"
 local category = Settings.RegisterCanvasLayoutCategory(panel, "ButtonAurasReborn")
 -- 注意：不要覆盖 category.ID，RegisterCanvasLayoutCategory 已自动分配数字 ID
 -- 之后用 Settings.OpenToCategory(category.ID) 打开（参数为数字）
 Settings.RegisterAddOnCategory(category)
+
+-- 打开本插件设置面板（供 Addon Compartment / 斜杠命令调用）
+local function OpenSettings()
+    Settings.OpenToCategory(category.ID)
+end
+
+-- 将插件快捷方式加入小地图旁的 Addon Compartment 框架
+-- 图标取自 .toc 的 ## IconTexture（内置齿轮图标，体现技能冷却/设置主题）
+local icon = C_AddOns.GetAddOnMetadata(addonName, "IconTexture")
+AddonCompartmentFrame:RegisterAddon({
+    text = C_AddOns.GetAddOnMetadata(addonName, "Title") or addonName,
+    icon = icon,
+    registerForAnyClick = true,
+    notCheckable = true,
+    func = OpenSettings,
+    funcOnEnter = function(button)
+        MenuUtil.ShowTooltip(button, function(tooltip)
+            tooltip:SetText(C_AddOns.GetAddOnMetadata(addonName, "Title") or addonName, 1, 1, 1)
+            tooltip:AddLine("点击打开设置面板")
+        end)
+    end,
+    funcOnLeave = function(button)
+        MenuUtil.HideTooltip(button)
+    end,
+})
 
 -- 标题
 local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -108,34 +134,10 @@ local function MakeRow(parent, idx)
     row.Name:SetJustifyH("LEFT")
     row.Name:SetTextColor(1, 1, 1)
 
-    -- 两个显示开关：时间 / 层数（打勾=显示，默认打勾），位于图标与下拉框之间
-    -- 不使用 OptionsCheckButtonTemplate（12.x 客户端未注册该模板），改用原生 CheckButton + 手动纹理/标签
-    local function MakeToggle(anchorFrame, xOff, name, label, onClick)
-        local cb = CreateFrame("CheckButton", name, row)
-        cb:SetSize(18, 18)
-        cb:SetPoint("LEFT", anchorFrame, "RIGHT", xOff, 0)
-        cb:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-        cb:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-        cb:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
-        cb:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-        local lbl = cb:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        lbl:SetPoint("LEFT", cb, "RIGHT", 6, 0)
-        lbl:SetText(label)
-        cb:SetScript("OnClick", onClick)
-        return cb
-    end
-
-    row.ChkTime = MakeToggle(row.Name, 18, "BARRow" .. idx .. "ChkTime", "时间", function()
-        BAR.SetBindingOption(row.spellID, "showTime", row.ChkTime:GetChecked())
-    end)
-
-    row.ChkStack = MakeToggle(row.ChkTime, 40, "BARRow" .. idx .. "ChkStack", "层数", function()
-        BAR.SetBindingOption(row.spellID, "showStack", row.ChkStack:GetChecked())
-    end)
-
     -- 时间位置下拉（默认 / 上 / 下 / 左 / 右）：驱动 Overlay 的 timePos，立即刷新定位
+    -- 时间与层数已改为「绑定即一律显示」，不再提供开关
     local posLabel = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    posLabel:SetPoint("LEFT", row.ChkStack, "RIGHT", 60, 0)
+    posLabel:SetPoint("LEFT", row.Name, "RIGHT", 20, 0)
     posLabel:SetText("位置")
     row.PosTime = CreateFrame("Frame", "BARRow" .. idx .. "PosTime", row, "UIDropDownMenuTemplate")
     row.PosTime:SetPoint("LEFT", posLabel, "RIGHT", 4, 0)
@@ -159,13 +161,15 @@ local function MakeRow(parent, idx)
         end
     end)
 
-    -- 右侧：绑定动作条按钮的下拉框
+    -- 绑定动作条按钮的下拉框（位于「位置」左侧）
     row.DropDown = CreateFrame("Frame", "BARRow" .. idx .. "DropDown", row, "UIDropDownMenuTemplate")
-    row.DropDown:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+    row.DropDown:SetPoint("LEFT", row.Name, "RIGHT", 20, 0)
     UIDropDownMenu_SetWidth(row.DropDown, 130)
     UIDropDownMenu_JustifyText(row.DropDown, "LEFT")
     row.DropDown.noResize = true
     row.DropDown.spellID = nil
+    -- 「位置」下拉置于绑定下拉右侧（即绑定在「位置」左边）
+    posLabel:SetPoint("LEFT", row.DropDown, "RIGHT", 20, 0)
 
     UIDropDownMenu_Initialize(row.DropDown, function(self, level, menuList)
         local dropdown = row.DropDown
@@ -270,8 +274,6 @@ function BAR.BuildList()
         row.DropDown.spellID = b.spellID
         local bound = BAR.GetBinding(b.spellID)
         UIDropDownMenu_SetText(row.DropDown, BAR.GetBarLabelForButton(bound))
-        row.ChkTime:SetChecked(BAR.GetBindingOption(b.spellID, "showTime"))
-        row.ChkStack:SetChecked(BAR.GetBindingOption(b.spellID, "showStack"))
         row.PosTime.spellID = b.spellID
         UIDropDownMenu_SetText(row.PosTime, GetTimePos(b.spellID))
         row:SetShown(true)
