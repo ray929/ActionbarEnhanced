@@ -7,7 +7,6 @@
 ## DefaultState: enabled
 
 Settings.lua
-Core.lua
+Manual.lua
 AutoCDM.lua
 Options.lua
-Overlay.lua

@@ -59,7 +59,7 @@ status:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 10)
 -- 注意：AutoCDM.lua 已在 TOC 中先于本文件加载，故此处可直接读取 BAR.AutoCDM。
 local autoChk = CreateFrame("CheckButton", nil, panel)
 autoChk:SetSize(18, 18)
-autoChk:SetPoint("TOPLEFT", specLabel, "BOTTOMLEFT", 0, -6)
+autoChk:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
 autoChk:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
 autoChk:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
 autoChk:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
