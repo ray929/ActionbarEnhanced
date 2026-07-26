@@ -15,7 +15,7 @@ CDMEnhanced.Settings = S
 -- 字体与字号
 -- =========================================================
 S.FONT = STANDARD_TEXT_FONT          -- 字体（暴雪标准字体；要换可改成 "Fonts\\ARKai_C.ttf" 等）
-S.FONT_SIZE = 14                     -- 字号（时间、层数通用，像素）
+S.FONT_SIZE = 16                     -- 字号（时间、层数通用，像素）
 S.OUTLINE = "THICKOUTLINE"           -- 重描边样式（THICKOUTLINE / OUTLINE / nil）
 
 -- =========================================================

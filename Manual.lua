@@ -339,7 +339,7 @@ end
 
 -- =========================================================
 -- 按「职业专精」存储配置：相同专精读同一份，切换专精即切换配置。
--- 持久化结构：CDMEnhancedDB.specs[specID] = { bindings }（bindings[sid] = { bindSpell, showTime, showStack, timePos }）
+-- 持久化结构：CDMEnhancedDB.specs[specID] = { bindings }（bindings[sid] = { bindSpell, showTime, showStack, timePos, stackPos }）
 --   · specID 取自 GetSpecializationInfo(GetSpecialization())，跨职业唯一；拿不到时用 0（通用/默认槽）。
 --   · BAR.db 始终指向「当前专精」的子表；绑定与显示开关都落在此子表，无需其它模块改动。
 --   · 外观（时间/层数颜色、字号）为硬代码常量，不分专精、不可配置（见 Settings.lua）。
@@ -654,10 +654,11 @@ end
 local function StyleCountdown(cd, color)
     local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
     if not fs then return end
-    -- 时间字号：默认基础上大 10%，并按按钮缩放 r（手动容器在 UIParent 坐标系，
-    -- 需 ×r 才与 AutoCDM 的按钮子帧字号视觉一致）
+    -- 时间字号：默认位置用基准字号；非默认位置（上/下/左/右）放大到 1.2×；并按按钮缩放 r
     local r = cd.__BARr or 1
-    fs:SetFont(S.FONT, math.max(1, math.floor(S.FONT_SIZE * 1.1 * r + 0.5)), S.OUTLINE)
+    local pos = cd.__BARtimePos
+    local tScale = (pos and pos ~= "默认") and 1.2 or 1.0
+    fs:SetFont(S.FONT, math.max(1, math.floor(S.FONT_SIZE * tScale * r + 0.5)), S.OUTLINE)
     if color then fs:SetTextColor(color[1], color[2], color[3]) end
 end
 
@@ -742,13 +743,29 @@ local function PositionOverlay(ov)
             ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
         end
         ov.cd.__BARr = r  -- 供 StyleCountdown 按按钮缩放算字号
+        ov.cd.__BARtimePos = pos  -- 供 StyleCountdown 据 timePos 决定字号倍数
     end
 
-    -- 层数（与 AutoCDM 对齐：左上 5, -5，字体按按钮缩放 r 放大，与按钮子帧字号视觉一致）
+    -- 层数位置（支持与时间位置一致的 默认/上/下/左/右）：
+    --   默认：左上 5, -5（与原实现一致）；上/下/左/右：居中于按钮对应边外 10px。
     if ov.stackText then
         ov.stackText:ClearAllPoints()
-        ov.stackText:SetPoint("TOPLEFT", ov.container, "TOPLEFT", 5 * r, -5 * r)
-        ov.stackText:SetFont(S.FONT, math.max(1, math.floor(S.FONT_SIZE * r + 0.5)), S.OUTLINE)
+        local spos = (BAR.GetBindingOption and BAR.GetBindingOption(ov.spellID, "stackPos")) or "默认"
+        if spos ~= "上" and spos ~= "下" and spos ~= "左" and spos ~= "右" then spos = "默认" end
+        if spos == "上" then
+            ov.stackText:SetPoint("CENTER", ov.container, "TOP", 0, 10 * r)
+        elseif spos == "下" then
+            ov.stackText:SetPoint("CENTER", ov.container, "BOTTOM", 0, -10 * r)
+        elseif spos == "左" then
+            ov.stackText:SetPoint("CENTER", ov.container, "LEFT", -10 * r, 0)
+        elseif spos == "右" then
+            ov.stackText:SetPoint("CENTER", ov.container, "RIGHT", 10 * r, 0)
+        else  -- 默认：左上 5, -5
+            ov.stackText:SetPoint("TOPLEFT", ov.container, "TOPLEFT", 5 * r, -5 * r)
+        end
+        -- 层数字号：默认位置用基准字号；非默认位置（上/下/左/右）放大到 1.2× 与时间一致
+        local stackFont = (spos == "默认") and (S.FONT_SIZE * r) or (S.FONT_SIZE * 1.2 * r)
+        ov.stackText:SetFont(S.FONT, math.max(1, math.floor(stackFont + 0.5)), S.OUTLINE)
     end
     return true
 end

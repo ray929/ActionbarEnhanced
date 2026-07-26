@@ -24,6 +24,12 @@ local function GetTimePos(spellID)
     return "默认"
 end
 
+local function GetStackPos(spellID)
+    local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
+    if type(b) == "table" and b.stackPos then return b.stackPos end
+    return "默认"
+end
+
 local POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右" }
 
 -- 自定义 AceGUI 控件「图标 + 位置 + 绑定」同一行：
@@ -71,18 +77,29 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
         pos:SetLabel("时间位置")
         pos:SetList(POS_VALUES)
         pos:SetValue(GetTimePos(sid))
-        pos:SetWidth(140)
+        pos:SetWidth(100)
         pos:SetCallback("OnValueChanged", function(_, _, v)
             BAR.SetBindingOption(sid, "timePos", v)
             if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
         end)
         self:AddChild(pos)
+        -- 层数位置下拉（与时间位置一致的 默认/上/下/左/右）
+        local spos = AceGUI:Create("Dropdown")
+        spos:SetLabel("层数位置")
+        spos:SetList(POS_VALUES)
+        spos:SetValue(GetStackPos(sid))
+        spos:SetWidth(100)
+        spos:SetCallback("OnValueChanged", function(_, _, v)
+            BAR.SetBindingOption(sid, "stackPos", v)
+            if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+        end)
+        self:AddChild(spos)
         -- 绑定技能输入框（回车提交；留空提交 = 取消绑定）
         local bs = BAR.GetBoundSpell and BAR.GetBoundSpell(sid)
         local edit = AceGUI:Create("EditBox")
         edit:SetLabel("绑定技能")
         edit:SetText(bs and BAR.GetSpellDisplayName(bs) or "")
-        edit:SetWidth(200)
+        edit:SetWidth(150)
         edit:SetCallback("OnEnterPressed", function(w)
             local val = w:GetText()
             val = val and strtrim(val) or ""
