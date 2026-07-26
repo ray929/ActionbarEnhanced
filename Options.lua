@@ -47,9 +47,13 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
         if icon then
             local ic = AceGUI:Create("Icon")
             ic:SetImage(icon, 4 / 64, 60 / 64, 4 / 64, 60 / 64)
-            ic:SetImageSize(28, 28)
-            ic:SetWidth(32)
-            ic:SetHeight(32)
+            ic:SetImageSize(32, 32)
+            ic:SetWidth(46)
+            ic:SetHeight(40)
+            -- Icon 控件默认把 image 锚在 TOP(-5)，在 Flow 顶部对齐下会被压到中下方（偏下）。
+            -- 改在控件内居中，使其与同行的下拉/输入框整体垂直对齐。
+            ic.image:ClearAllPoints()
+            ic.image:SetPoint("CENTER", ic.frame, "CENTER", 0, 0)
             if sid then
                 ic:SetCallback("OnEnter", function(w)
                     GameTooltip:SetOwner(w.frame, "ANCHOR_RIGHT")
@@ -64,7 +68,7 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
         end
         -- 位置下拉
         local pos = AceGUI:Create("Dropdown")
-        pos:SetLabel("位置")
+        pos:SetLabel("时间位置")
         pos:SetList(POS_VALUES)
         pos:SetValue(GetTimePos(sid))
         pos:SetWidth(140)
