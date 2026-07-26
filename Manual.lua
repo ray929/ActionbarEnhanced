@@ -1,4 +1,4 @@
--- ButtonAurasReborn/Manual.lua
+-- CDMEnhanced/Manual.lua
 -- 手动绑定系统（全栈）：原 Core.lua（数据/绑定/事件）+ Overlay.lua（渲染）合并而来。
 -- 两者仅通过 BAR.* 表通信，合并后局部函数复用同一 upvalue，无任何接口变更（外部调用方无感）。
 -- 文件内分两段：第一段=数据扫描/绑定存档/专精配置/事件驱动；第二段=覆盖层渲染。
@@ -16,8 +16,8 @@
 --   （配置集 GetCooldownViewerCategorySet 会返回分类下全部条目，含未启用的——已弃用。）
 --   spellID 经 GetCooldownViewerCooldownInfo 解析；名称/图标取自 C_Spell.GetSpellInfo（非 unit auras）。
 
-ButtonAurasReborn = ButtonAurasReborn or {}
-local BAR = ButtonAurasReborn
+CDMEnhanced = CDMEnhanced or {}
+local BAR = CDMEnhanced
 
 -- 运行时：从 CDM 帧读到的玩家增益（每次重新扫描重建）
 -- spellID -> { spellID, name, icon }
@@ -146,6 +146,34 @@ local function ScanViewerFrames()
     end
 end
 
+-- 当前 CDM 查看器【活动帧】里 spellID 的集合签名（排序后拼接）。
+-- 用于检测：在官方 CDM 里启用/禁用技能、或活动帧集合变化时，knownBuffs 需要重扫。
+-- 活动帧集合在平稳游戏时基本不变（CDM 原地刷新冷却数字），仅启用/禁用/增删追踪技能才变，
+-- 因此对它做签名比对触发的 Rescan 极少，开销可控。
+function BAR.GetActiveViewerSignature()
+    local ids = {}
+    for _, viewerName in ipairs(VIEWER_NAMES) do
+        local viewer = _G[viewerName]
+        local frames = GetViewerFrames(viewer)
+        if frames then
+            for _, frame in ipairs(frames) do
+                local cdID = FrameCooldownID(frame)
+                if cdID then
+                    local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
+                    if ok and info then
+                        local spellID = ResolveSpellID(info)
+                        if spellID and not IsSecret(spellID) then
+                            ids[#ids + 1] = spellID
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
 -- 动态查找当前正在显示该 spellID 的 CDM item frame。
 -- 不用 BAR.frameBySpell 的静态缓存：战斗中 CDM 可能把同一个 frame 对象复用去显示别的 buff，
 -- 静态引用会失效；此处每次实时遍历活动帧，用我们写在 frame 上的非 secret 字段 __BARSpellID 匹配，
@@ -214,11 +242,25 @@ end
 -- 绑定关系：spellID -> 原生动作条按钮全局名（如 "ActionButton3"）
 -- 绑定了按钮的增益，在后续阶段才会覆盖到对应按钮上。
 -- =========================================================
-function BAR.GetBinding(spellID)
+-- 读取某绑定要扫描的"目标技能"（用户输入的 spellID）；nil = 未绑定
+function BAR.GetBoundSpell(spellID)
     local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
-    if type(b) == "table" then return b.button end
-    if type(b) == "string" then return b end
+    if type(b) == "table" then
+        if b.bindSpell then return b.bindSpell end
+    end
     return nil
+end
+
+-- 是否已绑定（新模型 bindSpell 或旧模型 button 任一非空）
+function BAR.IsBound(spellID)
+    local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
+    if type(b) == "table" then
+        if b.bindSpell then return true end
+        if b.button and b.button ~= "" then return true end
+    elseif type(b) == "string" then
+        return b ~= ""
+    end
+    return false
 end
 
 -- 读取某绑定的显示选项（showTime / showStack），默认 true（显示）
@@ -231,18 +273,56 @@ function BAR.GetBindingOption(spellID, key)
     return true
 end
 
-function BAR.SetBinding(spellID, buttonName)
+-- 把某 CDM 增益(spellID)绑定到"目标技能"（扫描动作条找该技能的按钮并锚定覆盖层）。
+-- targetSpellID 为 nil 表示解绑。
+-- 绑定不再记具体动作条槽位：运行时扫动作条按技能定位，跟随变形/翻页/槽位变化。
+function BAR.SetBoundSpell(spellID, targetSpellID)
     if not spellID then return end
     if not BAR.db then BAR.db = {} end
     BAR.db.bindings = BAR.db.bindings or {}
     local cur = BAR.db.bindings[spellID]
     if type(cur) ~= "table" then cur = {} end
-    cur.button = (buttonName and buttonName ~= "") and buttonName or nil
+    if targetSpellID then
+        cur.bindSpell = targetSpellID
+        cur.button = nil   -- 新模型覆盖旧的固定槽位
+    else
+        cur.bindSpell = nil
+        cur.button = nil   -- 解绑
+    end
     if cur.showTime == nil then cur.showTime = true end
     if cur.showStack == nil then cur.showStack = true end
     BAR.db.bindings[spellID] = cur
     -- 绑定变动后通知覆盖层重建（OnBindingsChanged 由第二段注册）
     if BAR.OnBindingsChanged then BAR.OnBindingsChanged() end
+end
+
+-- 解析用户输入（技能名或 spellID）为 spellID；失败返回 nil
+function BAR.ParseSpellInput(text)
+    text = strtrim(tostring(text or ""))
+    if text == "" then return nil end
+    local num = tonumber(text)
+    if num then
+        local ok, info = pcall(C_Spell.GetSpellInfo, num)
+        if ok and info and info.name then return num end
+        return nil
+    end
+    -- 技能名：先试 GetSpellID，再试 GetSpellInfo(name).spellID
+    local okID, id = pcall(function() return C_Spell.GetSpellID(text) end)
+    if okID and id and id > 0 then
+        local ok, info = pcall(C_Spell.GetSpellInfo, id)
+        if ok and info and info.name then return id end
+    end
+    local ok2, info2 = pcall(C_Spell.GetSpellInfo, text)
+    if ok2 and info2 and info2.spellID then return info2.spellID end
+    return nil
+end
+
+-- spellID -> 友好显示名（解析不出则用 ID）
+function BAR.GetSpellDisplayName(spellID)
+    if not spellID then return "" end
+    local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
+    if ok and info and info.name then return info.name end
+    return tostring(spellID)
 end
 
 -- 设置某绑定的显示选项（showTime / showStack）
@@ -259,7 +339,7 @@ end
 
 -- =========================================================
 -- 按「职业专精」存储配置：相同专精读同一份，切换专精即切换配置。
--- 持久化结构：ButtonAurasRebornDB.specs[specID] = { bindings }（bindings[sid] = { button, showTime, showStack }）
+-- 持久化结构：CDMEnhancedDB.specs[specID] = { bindings }（bindings[sid] = { bindSpell, showTime, showStack, timePos }）
 --   · specID 取自 GetSpecializationInfo(GetSpecialization())，跨职业唯一；拿不到时用 0（通用/默认槽）。
 --   · BAR.db 始终指向「当前专精」的子表；绑定与显示开关都落在此子表，无需其它模块改动。
 --   · 外观（时间/层数颜色、字号）为硬代码常量，不分专精、不可配置（见 Settings.lua）。
@@ -285,24 +365,24 @@ end
 -- 初始化 specs 表：首次运行时建结构；兼容旧扁平存档，迁移到通用槽 specs[0]。
 -- 外观（颜色/字号）现为硬代码常量，不再存盘（旧顶层的 timeColor/stackColor/fontSize 字段清理掉）。
 function BAR.InitSpecStorage()
-    ButtonAurasRebornDB = ButtonAurasRebornDB or {}
-    if not ButtonAurasRebornDB.specs then
+    CDMEnhancedDB = CDMEnhancedDB or {}
+    if not CDMEnhancedDB.specs then
         -- 旧结构（顶层 bindings）-> 迁移为通用槽，作为新专精的起步模板
-        local legacy = { bindings = ButtonAurasRebornDB.bindings or {} }
-        ButtonAurasRebornDB.bindings  = nil
-        ButtonAurasRebornDB.timeColor  = nil
-        ButtonAurasRebornDB.stackColor = nil
-        ButtonAurasRebornDB.fontSize   = nil
-        ButtonAurasRebornDB.specs = { [0] = legacy }
+        local legacy = { bindings = CDMEnhancedDB.bindings or {} }
+        CDMEnhancedDB.bindings  = nil
+        CDMEnhancedDB.timeColor  = nil
+        CDMEnhancedDB.stackColor = nil
+        CDMEnhancedDB.fontSize   = nil
+        CDMEnhancedDB.specs = { [0] = legacy }
     end
 end
 
 -- 切换到「当前专精」配置槽：BAR.db 指向 specs[specID] 子表。
 -- 新专精首次使用从通用槽(0)/默认模板复制起步，各专精数据互不共享。
 function BAR.SelectSpec(specID)
-    if not ButtonAurasRebornDB or not ButtonAurasRebornDB.specs then return end
+    if not CDMEnhancedDB or not CDMEnhancedDB.specs then return end
     specID = specID or GetCurrentSpecID()
-    local specs = ButtonAurasRebornDB.specs
+    local specs = CDMEnhancedDB.specs
     if not specs[specID] then
         local base = specs[0] or DefaultSpecConfig()
         specs[specID] = CopyTable and CopyTable(base) or DefaultSpecConfig()
@@ -412,97 +492,51 @@ function BAR.GetBarLabelForButton(name)
     return name
 end
 
--- 简单表 dump（调试用，限制深度避免刷屏）
-local function DumpTable(t, prefix, depth)
-    if not t or type(t) ~= "table" then return end
-    depth = depth or 0
-    if depth > 2 then return end
-    for k, v in pairs(t) do
-        local vtype = type(v)
-        local vs
-        if vtype == "table" then
-            vs = "{...}"
-        elseif vtype == "string" then
-            vs = '"' .. v .. '"'
-        else
-            vs = tostring(v)
-        end
-        print(prefix .. tostring(k) .. " = " .. vs)
-        if vtype == "table" and depth < 2 then
-            DumpTable(v, prefix .. "  ", depth + 1)
-        end
-    end
+-- 从动作条按钮的全局名取得其当前所载技能的 spellID（spell / 单法术宏均可）。
+-- 只认暴雪原生动作条（由 GetActionBarButtonNames 提供）；验证 id 是真实法术，避免宏 id 误匹配。
+local function GetButtonSpellID(buttonName)
+    local btn = _G[buttonName]
+    if not btn or not btn.action then return nil end
+    local ok, atype, id = pcall(GetActionInfo, btn.action)
+    if not ok or not atype or not id then return nil end
+    if atype ~= "spell" and atype ~= "macro" then return nil end
+    local okInfo, info = pcall(C_Spell.GetSpellInfo, id)
+    if okInfo and info and info.name then return id end
+    return nil
 end
 
--- 调试输出：打印各查看器帧数 + 已捕获的玩家增益
-function BAR.DebugPrint()
-    print("|cff00ccff[ButtonAurasReborn]|r 诊断：C_CooldownViewer=" .. tostring(not not C_CooldownViewer))
-    for _, viewerName in ipairs(VIEWER_NAMES) do
-        local viewer = _G[viewerName]
-        local frames = GetViewerFrames(viewer)
-        local n = frames and #frames or 0
-        print("  " .. viewerName .. ": 存在=" .. tostring(not not viewer) .. "  帧数=" .. n)
-        if frames then
-            for i = 1, math.min(n, 8) do
-                local cdID = FrameCooldownID(frames[i])
-                local sid = "?"
-                if cdID then
-                    local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
-                    if ok and info then
-                        sid = tostring(info.linkedSpellIDs and info.linkedSpellIDs[1] or info.overrideSpellID or info.spellID)
-                    end
-                end
-                print("    #" .. i .. " cdID=" .. tostring(cdID) .. " spellID=" .. sid)
-            end
-        end
+-- 一次性扫描所有动作条，建立 spellID -> 按钮全局名 映射（首个匹配为准）。
+-- 仅事件驱动时调用（保存/登录/切条/变形/槽位变化），非每帧，性能无忧。
+local function BuildSpellButtonMap()
+    local map = {}
+    local names = BAR.GetActionBarButtonNames()
+    for _, name in ipairs(names) do
+        local sid = GetButtonSpellID(name)
+        if sid and not map[sid] then map[sid] = name end
     end
+    return map
+end
 
-    local list = {}
-    for sid, b in pairs(BAR.knownBuffs) do
-        list[#list + 1] = (b.name or "?") .. " (#" .. sid .. ")"
+-- 解析某 CDM 增益(spellID)覆盖层应锚定的按钮：
+--   · 新模型 bindSpell 存在 -> 扫动作条找该技能的按钮（变形/翻页自动跟随）；
+--   · 旧模型 button（固定槽位）存在 -> 直接返回（兼容旧存档）；
+--   · 均未设置 -> 返回 nil（未绑定/技能不在任何动作条）。
+function BAR.ResolveAnchor(spellID)
+    if not spellID then return nil end
+    local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
+    local bindSpell, legacyButton
+    if type(b) == "table" then
+        bindSpell = b.bindSpell
+        legacyButton = b.button
+    elseif type(b) == "string" then
+        legacyButton = b
     end
-    table.sort(list)
-    print("|cff00ccff[ButtonAurasReborn]|r 列表当前显示：" .. #list .. " 个")
-    for _, s in ipairs(list) do print("  - " .. s) end
-
-    if #list == 0 then
-        print("|cffff6666[ButtonAurasReborn]|r 列表为空：请先在游戏内 Cooldown Manager（法术书→冷却管理）启用至少一个增益，再重载 / 打开面板。")
+    if bindSpell then
+        local map = BuildSpellButtonMap()
+        return map[bindSpell]
     end
-
-    -- 额外：dump 第一个增益的原始 info，便于核对字段名（startTime / duration / count / stackCount 等）
-    local firstSID
-    for sid in pairs(BAR.cdIDBySpell) do firstSID = sid; break end
-    if firstSID then
-        local cdID = BAR.cdIDBySpell[firstSID]
-        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
-        if ok and info then
-            print("|cff00ccff[ButtonAurasReborn]|r 第一个增益 (#" .. firstSID .. ") 原始 info 字段：")
-            DumpTable(info, "    ")
-        else
-            print("|cffff6666[ButtonAurasReborn]|r 无法取得 #" .. tostring(firstSID) .. " 的 info（cdID=" .. tostring(cdID) .. "）。")
-        end
-        -- 关键：剩余时间/层数真正来自 CDM item frame 的 aura 字段（非 cooldown info）
-        local f = BAR.frameBySpell and BAR.frameBySpell[firstSID]
-        if f then
-            print("|cff00ccff[ButtonAurasReborn]|r 对应 CDM frame 的 aura 字段（时间/层数真正来源）：")
-            print("    auraDataUnit = " .. tostring(f.auraDataUnit))
-            print("    auraInstanceID = " .. tostring(f.auraInstanceID))
-            -- 直接验证战斗安全访问器（与 Overlay 实际使用的完全一致，绝不读 secret 数字）
-            if f.auraDataUnit and f.auraInstanceID then
-                -- 时间：GetAuraDuration 返回 DurationObject（交给 Cooldown 控件，addon 不读其字段）
-                local okD = pcall(C_UnitAuras.GetAuraDuration, f.auraDataUnit, f.auraInstanceID)
-                print("    >> GetAuraDuration 成功=" .. tostring(okD) .. "  (DurationObject → SetCooldownFromDurationObject)")
-                -- 层数：GetAuraApplicationDisplayCount 是【非 secret】显示访问器，可直接打印
-                local okC, cnt = pcall(C_UnitAuras.GetAuraApplicationDisplayCount, f.auraDataUnit, f.auraInstanceID)
-                local n = tonumber(cnt)
-                print("    >> GetAuraApplicationDisplayCount 成功=" .. tostring(okC)
-                    .. "  层数=" .. tostring(cnt)
-                    .. (n and n > 1 and "  (将显示)" or "  (<=1 不显示)"))
-            end
-        else
-            print("|cffff6666[ButtonAurasReborn]|r 未找到 #" .. tostring(firstSID) .. " 对应的 CDM frame。")
-        end
-    end
+    if legacyButton and legacyButton ~= "" then return legacyButton end
+    return nil
 end
 
 -- 动作条 / 形态 / 页面 / 载具切换事件集合。
@@ -784,21 +818,32 @@ local function MakeOverlay(spellID, buttonName)
     return ov
 end
 
--- bindings[sid] 兼容两种格式：旧字符串（按钮名）/ 新 table { button=..., showTime=..., showStack=... }
-local function BindingButton(v)
-    if type(v) == "table" then return v.button end
-    if type(v) == "string" then return v end
-    return nil
-end
-
--- 根据当前 bindings 重建覆盖层集合（绑定变动时调用）
+-- 根据当前 bindings 重建覆盖层集合（绑定变动 / 登录 / 切条 / 变形 / 槽位变化时调用）。
+-- 锚定不再依赖写死槽位：对每个绑定技能，运行时扫动作条按"目标技能"解析按钮，
+-- 变形/翻页后槽位内容变化也能自动跟随（时间/层数刷新链路与此完全解耦，不受影响）。
 function BAR.RebuildOverlays()
     if not BAR.db then return end
     local bindings = BAR.db.bindings or {}
+    local map = BuildSpellButtonMap()  -- 一次性扫描所有动作条
+
+    -- 解析某绑定应锚定的按钮名（与 BAR.ResolveAnchor 同逻辑，但复用已构建的 map）
+    local function anchorFor(sid)
+        local b = bindings[sid]
+        local bindSpell, legacyButton
+        if type(b) == "table" then
+            bindSpell = b.bindSpell
+            legacyButton = b.button
+        elseif type(b) == "string" then
+            legacyButton = b
+        end
+        if bindSpell then return map[bindSpell] end
+        if legacyButton and legacyButton ~= "" then return legacyButton end
+        return nil
+    end
 
     -- 移除：已解绑 / 目标无效 / 非原生按钮 的覆盖层
     for sid, ov in pairs(overlays) do
-        local target = BindingButton(bindings[sid])
+        local target = anchorFor(sid)
         if not target or target == "" or not IsNativeButton(target) or not _G[target] then
             if ov.cd then ov.cd:Hide() end
             if ov.stackText then ov.stackText:Hide() end
@@ -809,7 +854,7 @@ function BAR.RebuildOverlays()
 
     -- 新增 / 切换目标 的覆盖层
     for sid, v in pairs(bindings) do
-        local target = BindingButton(v)
+        local target = anchorFor(sid)
         if target and target ~= "" and IsNativeButton(target) then
             local ov = overlays[sid]
             if not ov or ov.buttonName ~= target then
@@ -824,7 +869,7 @@ function BAR.RebuildOverlays()
     end
 end
 
--- 绑定变动回调（由第一段 SetBinding 触发）
+-- 绑定变动回调（由 SetBoundSpell 触发）
 BAR.OnBindingsChanged = BAR.RebuildOverlays
 
 -- =========================================================

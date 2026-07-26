@@ -1,4 +1,4 @@
-# ButtonAurasReborn 可行性分析与开发规划
+# CDMEnhanced 可行性分析与开发规划
 
 > 目标：适配正式服 12.0.7（Interface 120007），通过 hook 暴雪自带的 CDM（Cooldown Manager）
 > 获取增益信息，仅把"用户绑定了动作条按钮的增益"覆盖到原生动作条按钮上（左上=剩余时间/绿色，左下=层数/紫色，字号16，不显示图标）。
@@ -96,8 +96,8 @@ local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(item.cooldownID)
 ## 五、推荐架构（模块划分）
 
 ```
-ButtonAurasReborn/
-├─ ButtonAurasReborn.toc        # Interface: 120007, SavedVariables: ButtonAurasRebornDB
+CDMEnhanced/
+├─ CDMEnhanced.toc        # Interface: 120007, SavedVariables: CDMEnhancedDB
 ├─ Core/
 │  ├─ Hook.lua        # hook 两个 CDM viewer；维护 cdID→frame、spellID→cdID 映射
 │  ├─ AuraState.lua   # 每个被追踪增益的运行时状态(remaining/stacks/active)
@@ -143,7 +143,7 @@ ButtonAurasReborn/
 
 已实现、可游戏内测试：
 
-- **Phase 0 骨架 + Phase 1 捕获核心**：`ButtonAurasReborn.toc`(120007) + `Core.lua`。
+- **Phase 0 骨架 + Phase 1 捕获核心**：`CDMEnhanced.toc`(120007) + `Core.lua`。
   - **关键修正（2026-07-17 晚，最终确认方向）**：数据源 = CDM【配置集】里**玩家已启用**的增益，**不要求该增益当前在身上/激活**。
     - ✅ 正确做法（读 Ayije_CDM `Core/SpellUtils.lua:636` + `Config/Core.lua:1723` 确认；这正是 Cooldown Manager 的"启用清单"语义，与 vflow 一致）：
       `Enum.CooldownViewerCategory` 的 buff 类分类（`TrackedBuff` / `TrackedBar`）→
@@ -153,14 +153,14 @@ ButtonAurasReborn/
     - 2026-07-17 19:15 补充：用户进一步要求"只显示已启用的，未启用的不显示"。`GetCooldownViewerCategorySet(cat, true)` 会把分类下**所有**条目（含未启用）一并返回，需自行按"启用"过滤：
       - 分类收窄为只取 `TrackedBuff`（Cooldown Manager 的"增益"页 = 用户启用 buff 的地方）；`TrackedBar`（资源条/专注条，非 buff）排除。
       - 加 `IsEnabled(info)` 过滤：若 `info.enabled` / `info.isEnabled` 存在则按其过滤，否则不过滤（保守）。
-      - `/bar debug` 增强：打印各分类 `includeEmpty=true/false` 条目数对比 + 前几条 info 的全部字段，用于定位"启用"标志（若 API 未暴露该标志，靠 debug 输出确定下一步）。
-  - 绑定关系持久化到 `ButtonAurasRebornDB.bindings`（spellID→按钮名，未绑定则不覆盖）；提供 `/bar`、`/bar debug`、`/bar rescan`。
+      - `/bar rescan` 增强：打印各分类 `includeEmpty=true/false` 条目数对比 + 前几条 info 的全部字段，用于定位"启用"标志（若 API 未暴露该标志，靠 debug 输出确定下一步）。
+  - 绑定关系持久化到 `CDMEnhancedDB.bindings`（spellID→按钮名，未绑定则不覆盖）；提供 `/bar`、`/bar rescan`、`/bar rescan`。
 - **Phase 4 之「① 增益列表 + 绑定」**：`Options.lua` 用暴雪设置面板（画布分类）列出 CDM 捕获到的玩家增益（放大图标+名称），每行右侧二级下拉框把该增益绑定到某个原生动作条按钮。无独立"选中"状态——绑定按钮即为纳入覆盖的条件。含"刷新列表"按钮与已绑定计数。
 
-文件清单：`ButtonAurasReborn.toc`、`Core.lua`、`Options.lua`。
+文件清单：`CDMEnhanced.toc`、`Core.lua`、`Options.lua`。
 
 测试方式：
-- `/bar` 打开配置面板；`/bar debug` 在聊天框打印已捕获的增益；`/bar rescan` 强制重新扫描。
+- `/bar` 打开配置面板；`/bar rescan` 在聊天框打印已捕获的增益；`/bar rescan` 强制重新扫描。
 - 若列表为空，请先获得一个增益（食物 / 药剂 / 职业 buff），它会自动出现在列表中。
 
 **未读取 unit auras**：所有数据来自 `C_CooldownViewer.GetCooldownViewerCooldownInfo` 与帧上的 `auraDataUnit/auraInstanceID`，符合需求 3。

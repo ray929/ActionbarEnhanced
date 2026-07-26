@@ -1,4 +1,4 @@
-# ButtonAurasReborn
+# CDM Enhanced
 
 > Move buff information shown by Blizzard's built-in Cooldown Manager (CDM) onto your native action bar buttons — for World of Warcraft retail 12.0.7.
 
@@ -9,26 +9,22 @@
 - Hooks Blizzard's `BuffIconCooldownViewer` / `BuffBarCooldownViewer` (CDM) — no scanning of unit auras, combat-safe.
 - Captures **player** buffs only (filtered by `auraDataUnit` + `auraInstanceID` on the CDM frame).
 - Config GUI (Blizzard Settings panel): lists captured buffs with icon + name + spellID, click a row to select/deselect.
-- Selection persists across sessions (`ButtonAurasRebornDB`).
+- Selection persists across sessions (`CDMEnhancedDB`).
 - (Planned) Show remaining time (green, top-left) and stacks (purple, bottom-left), font size 16, no icon overlay.
 
 ## Installation / 安装
 
-Copy the `ButtonAurasReborn` folder into `World of Warcraft\_retail_\Interface\AddOns\`, then enable it in-game (Esc → AddOns).
+Copy the `CDMEnhanced` folder into `World of Warcraft\_retail_\Interface\AddOns\`, then enable it in-game (Esc → AddOns).
 
-## Debug Commands / 调试命令
+## Configuration / 配置
 
-| Command | Description |
-|---------|-------------|
-| `/bar` | Open the config panel (BuffAurasReborn settings). |
-| `/bar debug` | Print captured player buffs (name + spellID) to chat. |
-| `/bar rescan` | Force a re-scan of the CDM viewers. |
+Open the settings panel via the **Addon Compartment** (top-right of the minimap area, click the CDMEnhanced entry), or via Esc → Options → AddOns → CDM Enhanced.
 
 > If the list is empty, gain a buff first (food / flask / class buff) — it will appear automatically.
 
 ## Environment Variables / 环境变量
 
-None. This is a pure WoW addon; all state lives in `ButtonAurasRebornDB`.
+None. This is a pure WoW addon; all state lives in `CDMEnhancedDB`.
 
 ## Release / 构建
 

@@ -1,8 +1,21 @@
--- ButtonAurasReborn/Options.lua
--- 配置 GUI：在暴雪设置面板中列出从 CDM 捕获到的玩家增益，每行可绑定到原生动作条按钮。
+-- CDMEnhanced/Options.lua
+-- 配置 GUI：基于 Ace3（AceConfig + AceConfigDialog），独立窗口，不依赖暴雪新设置系统。
+-- ⚠️ 为什么不用暴雪 Settings.RegisterCanvasLayout*：
+--    canvas-layout 子页面在 12.x 里 manualPanel 永远不让自己 IsVisible() 变 true（OnShow 也不触发），
+--    导致自动刷新根本无法触发（多次尝试 OpenToCategory 钩子 / 轮询 IsVisible 全部失效）。
+--    改用 AceConfigDialog 独立窗口后，窗口是普通 frame，刷新可靠，彻底绕开该 bug。
+-- 入口仅 Addon Compartment（无 slash 命令）。
 
-local BAR = ButtonAurasReborn
+local BAR = CDMEnhanced
 if not BAR then return end
+
+local ADDON_FOLDER = "CDMEnhanced"
+local addonName = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "Title") or "CDM Enhanced"
+
+local AceConfig = LibStub("AceConfig-3.0")
+local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
+local AceGUI = LibStub("AceGUI-3.0")
 
 -- 读取某绑定的时间位置（未设置返回 "默认"）
 local function GetTimePos(spellID)
@@ -11,33 +24,190 @@ local function GetTimePos(spellID)
     return "默认"
 end
 
--- 注册设置面板（画布分类）
-local panel = CreateFrame("Frame")
-panel.name = "ButtonAurasReborn"
+local POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右" }
 
-local addonName = "ButtonAurasReborn"
-local category = Settings.RegisterCanvasLayoutCategory(panel, "ButtonAurasReborn")
--- 注意：不要覆盖 category.ID，RegisterCanvasLayoutCategory 已自动分配数字 ID
--- 之后用 Settings.OpenToCategory(category.ID) 打开（参数为数字）
-Settings.RegisterAddOnCategory(category)
+-- 自定义 AceGUI 控件「图标 + 位置 + 绑定」同一行：
+--   放大的图标（可悬停显示暴雪原生法术 tooltip） + 位置下拉 + 绑定技能输入框，三者 Flow 横向并排。
+--   以 dialogControl 挂在 description 选项上；AceConfig 对 description 会调用 widget:SetText(options.name)，
+--   故在 SetText 里解析 name（编码为 "spellID\1 icon"）并构建子控件。
+AceGUI:RegisterWidgetType("CDMIconRow", function()
+    local widget = AceGUI:Create("SimpleGroup")
+    widget.type = "CDMIconRow"
+    -- AceConfigDialog 对 description 类型会无条件调用 control:SetFontObject(...)，
+    -- 而 SimpleGroup 基类没有该方法 → 触发 "attempt to call a nil value"。挂一个空实现规避。
+    widget.SetFontObject = function() end
+    widget.SetText = function(self, text)
+        self:ReleaseChildren()
+        local sid, icon = (text or ""):match("^([^\001]+)\001([^\001]+)$")
+        sid = sid and tonumber(sid)
+        icon = icon and tonumber(icon)
+        self:SetLayout("Flow")
+        self:SetFullWidth(true)
+        -- 放大的图标（悬停显示暴雪原生法术 tooltip）
+        if icon then
+            local ic = AceGUI:Create("Icon")
+            ic:SetImage(icon, 4 / 64, 60 / 64, 4 / 64, 60 / 64)
+            ic:SetImageSize(28, 28)
+            ic:SetWidth(32)
+            ic:SetHeight(32)
+            if sid then
+                ic:SetCallback("OnEnter", function(w)
+                    GameTooltip:SetOwner(w.frame, "ANCHOR_RIGHT")
+                    GameTooltip:SetSpellByID(sid)
+                    GameTooltip:Show()
+                end)
+                ic:SetCallback("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+            end
+            self:AddChild(ic)
+        end
+        -- 位置下拉
+        local pos = AceGUI:Create("Dropdown")
+        pos:SetLabel("位置")
+        pos:SetList(POS_VALUES)
+        pos:SetValue(GetTimePos(sid))
+        pos:SetWidth(140)
+        pos:SetCallback("OnValueChanged", function(_, _, v)
+            BAR.SetBindingOption(sid, "timePos", v)
+            if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+        end)
+        self:AddChild(pos)
+        -- 绑定技能输入框（回车提交；留空提交 = 取消绑定）
+        local bs = BAR.GetBoundSpell and BAR.GetBoundSpell(sid)
+        local edit = AceGUI:Create("EditBox")
+        edit:SetLabel("绑定技能")
+        edit:SetText(bs and BAR.GetSpellDisplayName(bs) or "")
+        edit:SetWidth(200)
+        edit:SetCallback("OnEnterPressed", function(w)
+            local val = w:GetText()
+            val = val and strtrim(val) or ""
+            if val == "" then
+                BAR.SetBoundSpell(sid, nil)
+            else
+                local resolved = BAR.ParseSpellInput and BAR.ParseSpellInput(val)
+                if not resolved then
+                    print("|cffff6666[CDMEnhanced]|r 无法识别技能：" .. val)
+                else
+                    BAR.SetBoundSpell(sid, resolved)
+                end
+            end
+            if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+        end)
+        self:AddChild(edit)
+    end
+    return widget
+end, 1)
 
--- 打开本插件设置面板（供 Addon Compartment / 斜杠命令调用）
-local function OpenSettings()
-    Settings.OpenToCategory(category.ID)
+-- 配置表（顶层：说明 + 「基本配置」子页面 + 「手动配置光环」子页面）
+local options = {
+    name = addonName,
+    type = "group",
+    args = {
+        desc = {
+            type = "description",
+            name = "基于暴雪冷却管理器（CDM）的增益/冷却可视化增强。",
+            order = 1,
+        },
+        basic = {
+            type = "group",
+            name = "基本配置",
+            order = 2,
+            args = {
+                autoCDM = {
+                    type = "toggle",
+                    name = "光环自动发现（自动在动作条上显示 CDM 增益）",
+                    order = 1,
+                    width = "full",
+                    get = function() return BAR.AutoCDM and BAR.AutoCDM.IsEnabled() end,
+                    set = function(_, v) if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(v) end end,
+                },
+                cooldownGlow = {
+                    type = "toggle",
+                    name = "冷却高亮提醒（技能冷却完成时对应动作条按钮高亮）",
+                    order = 2,
+                    width = "full",
+                    get = function() return BAR.CooldownGlow and BAR.CooldownGlow.IsEnabled() end,
+                    set = function(_, v) if BAR.CooldownGlow then BAR.CooldownGlow.SetEnabled(v) end end,
+                },
+            },
+        },
+        manual = {
+            type = "group",
+            name = "手动配置光环",
+            order = 10,
+            args = {},
+        },
+    },
+}
+
+-- 动态构建「手动配置光环」列表（紧凑布局）：
+--   顶部只写一次说明；每个光环 = 一条分割线(空 header) + 一行左对齐「图标 + 光环名」(description 默认左对齐)
+--   + 一行「位置 下拉 / 绑定技能 输入框」(两者均 width=half 并排；输入框自带「确定」按钮，落在该行末尾)。
+--   绑定语义 = 绑定某一个技能（覆盖层锚定到该技能的动作条按钮）。
+--   ⚠️ AceConfig 的 select/input 标签只能置于控件上方，无法紧贴控件左侧，故采用「标签在上、控件并排一行」。
+local function BuildManualArgs()
+    local args = {}
+    -- 顶部说明：只写一次
+    args.intro = {
+        type = "description",
+        name = "使用技能名或者技能ID绑定位置。",
+        order = 0,
+        fontSize = "medium",
+    }
+    local buffs = {}
+    for _, b in pairs(BAR.knownBuffs or {}) do buffs[#buffs + 1] = b end
+    table.sort(buffs, function(a, b) return (a.name or "") < (b.name or "") end)
+    if #buffs == 0 then
+        args.empty = {
+            type = "description",
+            name = "|cff999999（暂无光环：进入战斗或打开 CDM 后稍候会自动出现）|r",
+            order = 1,
+        }
+    end
+    for i, b in ipairs(buffs) do
+        local sid = b.spellID
+        local icon = b.icon or 134400
+        local base = i * 10
+        -- 分割线（仅线条）
+        args["sep_" .. sid] = {
+            type = "header",
+            name = "",
+            order = base,
+        }
+        -- 图标（放大，悬停出暴雪法术 tooltip）+ 位置下拉 + 绑定技能输入框，三者同一行（自定义控件）
+        args["row_" .. sid] = {
+            type = "description",
+            dialogControl = "CDMIconRow",
+            name = sid .. "\001" .. icon,
+            order = base + 1,
+            width = "full",
+        }
+    end
+    options.args.manual.args = args
 end
 
--- 将插件快捷方式加入小地图旁的 Addon Compartment 框架
--- 图标取自 .toc 的 ## IconTexture（内置齿轮图标，体现技能冷却/设置主题）
-local icon = C_AddOns.GetAddOnMetadata(addonName, "IconTexture")
+BuildManualArgs()
+
+AceConfig:RegisterOptionsTable("CDMEnhanced", options)
+-- 注：不调用 AddToBlizOptions，避免回到暴雪新设置系统；仅用 AceConfigDialog 独立窗口。
+
+-- 打开配置窗口（供 Addon Compartment 调用）
+local function OpenConfig()
+    AceConfigDialog:Open("CDMEnhanced")
+end
+
+-- 将插件快捷方式加入 Addon Compartment
+local icon = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "IconTexture")
 AddonCompartmentFrame:RegisterAddon({
-    text = C_AddOns.GetAddOnMetadata(addonName, "Title") or addonName,
+    text = addonName,
     icon = icon,
     registerForAnyClick = true,
     notCheckable = true,
-    func = OpenSettings,
+    func = OpenConfig,
     funcOnEnter = function(button)
         MenuUtil.ShowTooltip(button, function(tooltip)
-            tooltip:SetText(C_AddOns.GetAddOnMetadata(addonName, "Title") or addonName, 1, 1, 1)
+            tooltip:SetText(C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "Title") or addonName, 1, 1, 1)
             tooltip:AddLine("点击打开设置面板")
         end)
     end,
@@ -46,310 +216,35 @@ AddonCompartmentFrame:RegisterAddon({
     end,
 })
 
--- 标题
-local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-title:SetPoint("TOPLEFT", 16, -16)
-title:SetText("ButtonAurasReborn")
-
--- 操作按钮
-local refreshBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-refreshBtn:SetSize(110, 22)
-refreshBtn:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -32, -16)
-refreshBtn:SetText("刷新列表")
-refreshBtn:SetScript("OnClick", function()
-    if BAR.Rescan then BAR.Rescan() end
-    BAR.BuildList()
-end)
-
--- 状态文本 不需要 我手动注释了
--- local status = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
--- status:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 10)
-
--- 当前配置所属专精（切专精时实时更新），放在标题下方、列表上方
--- 不需要显示这部分 我手动注释了
--- local specLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
--- specLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -36)
--- function BAR.RefreshSpecLabel()
---     local name = "通用"
---     local ok, idx = pcall(GetSpecialization)
---     if ok and idx and idx ~= 0 then
---         local _, sname = pcall(GetSpecializationInfo, idx)
---         if sname then name = sname end
---     end
---     specLabel:SetText("当前配置专精：" .. name)
--- end
--- BAR.RefreshSpecLabel()
-
--- 自动发现系统开关（与手动绑定系统【独立】，由 AutoCDM.lua 实现）
--- 勾选后自动显示 CDM 追踪的全部增益（无需手动绑定），文字按归属上色（自己绿/别人红/层数黄）。
--- 注意：AutoCDM.lua 已在 TOC 中先于本文件加载，故此处可直接读取 BAR.AutoCDM。
-local autoChk = CreateFrame("CheckButton", nil, panel)
-autoChk:SetSize(18, 18)
-autoChk:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-autoChk:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-autoChk:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-autoChk:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
-autoChk:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-if BAR.AutoCDM then
-    BAR.AutoCDM.EnsureDB()
-    autoChk:SetChecked(BAR.AutoCDM.IsEnabled())
-end
-local autoLbl = autoChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-autoLbl:SetPoint("LEFT", autoChk, "RIGHT", 6, 0)
-autoLbl:SetText("自动发现（基于CDMButtonAuras修改而得）")
-autoChk:SetScript("OnClick", function()
-    if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(autoChk:GetChecked()) end
-end)
-
--- 冷却高亮提醒开关（由 CooldownGlow.lua 实现，存 ButtonAurasRebornDB.cooldownGlow.enabled）
--- 读取 CDM 已启用的技能冷却，冷却完成时给对应动作条按钮 Proc Glow。
--- 注意：CooldownGlow.lua 已在 TOC 中先于本文件加载，故此处可直接读取 BAR.CooldownGlow。
-local glowChk = CreateFrame("CheckButton", nil, panel)
-glowChk:SetSize(18, 18)
-glowChk:SetPoint("TOPLEFT", autoChk, "BOTTOMLEFT", 0, -8)
-glowChk:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-glowChk:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-glowChk:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
-glowChk:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-if BAR.CooldownGlow then
-    BAR.CooldownGlow.EnsureDB()
-    glowChk:SetChecked(BAR.CooldownGlow.IsEnabled())
-end
-local glowLbl = glowChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-glowLbl:SetPoint("LEFT", glowChk, "RIGHT", 6, 0)
-glowLbl:SetText("冷却高亮提醒（技能冷却完成时发光）")
-glowChk:SetScript("OnClick", function()
-    if BAR.CooldownGlow then BAR.CooldownGlow.SetEnabled(glowChk:GetChecked()) end
-end)
-
--- 同步两个开关复选框到「真实的当前存值」：每次面板显示时调用，
--- 避免面板创建时机（ADDON_LOADED）读到的过时/尚未初始化的 DB 导致「钩子打上但实际关闭」的显示错位。
-local function SyncToggles()
-    if BAR.AutoCDM then
-        BAR.AutoCDM.EnsureDB()
-        autoChk:SetChecked(BAR.AutoCDM.IsEnabled())
-    end
-    if BAR.CooldownGlow then
-        BAR.CooldownGlow.EnsureDB()
-        glowChk:SetChecked(BAR.CooldownGlow.IsEnabled())
-    end
-end
-
-local manualLbl = autoChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-manualLbl:SetPoint("TOPLEFT", glowLbl, "BOTTOMLEFT", 0, -15)
-manualLbl:SetText("手动配置")
-
-
--- 滚动列表（置于外观+专精标签下方）
-local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -90)
-scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 28)
-
-local scrollChild = CreateFrame("Frame", nil, scroll)
-scroll:SetScrollChild(scrollChild)
-panel.scrollChild = scrollChild
-
-local ROW_H = 34
-local ICON = 28
-panel.rows = {}
-
-local function MakeRow(parent, idx)
-    local row = CreateFrame("Button", "BARRow" .. idx, parent)
-    row:SetHeight(ROW_H)
-
-    -- 放大后的图标
-    row.Icon = row:CreateTexture(nil, "ARTWORK")
-    row.Icon:SetSize(ICON, ICON)
-    row.Icon:SetPoint("LEFT", 10, 0)
-
-    row.Name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.Name:SetPoint("LEFT", row.Icon, "RIGHT", 10, 0)
-    row.Name:SetPoint("RIGHT", row, "RIGHT", -500, 0)
-    row.Name:SetJustifyH("LEFT")
-    row.Name:SetTextColor(1, 1, 1)
-
-    -- 时间位置下拉（默认 / 上 / 下 / 左 / 右）：驱动 Overlay 的 timePos，立即刷新定位
-    -- 时间与层数已改为「绑定即一律显示」，不再提供开关
-    local posLabel = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    posLabel:SetPoint("LEFT", row.Name, "RIGHT", 20, 0)
-    posLabel:SetText("位置")
-    row.PosTime = CreateFrame("Frame", "BARRow" .. idx .. "PosTime", row, "UIDropDownMenuTemplate")
-    row.PosTime:SetPoint("LEFT", posLabel, "RIGHT", 4, 0)
-    UIDropDownMenu_SetWidth(row.PosTime, 80)
-    UIDropDownMenu_JustifyText(row.PosTime, "LEFT")
-    row.PosTime.noResize = true
-    UIDropDownMenu_Initialize(row.PosTime, function(self, level)
-        local sid = row.PosTime.spellID
-        local opts = { "默认", "上", "下", "左", "右" }
-        for _, o in ipairs(opts) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = o
-            info.value = o
-            info.func = function()
-                BAR.SetBindingOption(sid, "timePos", o)
-                UIDropDownMenu_SetText(row.PosTime, o)
-                if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
-            end
-            info.checked = (GetTimePos(sid) == o)
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-
-    -- 绑定动作条按钮的下拉框（位于「位置」左侧）
-    row.DropDown = CreateFrame("Frame", "BARRow" .. idx .. "DropDown", row, "UIDropDownMenuTemplate")
-    row.DropDown:SetPoint("LEFT", row.Name, "RIGHT", 20, 0)
-    UIDropDownMenu_SetWidth(row.DropDown, 130)
-    UIDropDownMenu_JustifyText(row.DropDown, "LEFT")
-    row.DropDown.noResize = true
-    row.DropDown.spellID = nil
-    -- 「位置」下拉置于绑定下拉右侧（即绑定在「位置」左边）
-    posLabel:SetPoint("LEFT", row.DropDown, "RIGHT", 20, 0)
-
-    UIDropDownMenu_Initialize(row.DropDown, function(self, level, menuList)
-        local dropdown = row.DropDown
-        local sid = dropdown.spellID
-
-        if level == 1 then
-            -- 未绑定
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = "未绑定"
-            info.value = ""
-            info.func = function()
-                BAR.SetBinding(sid, "")
-                UIDropDownMenu_SetText(dropdown, "未绑定")
-            end
-            info.checked = (BAR.GetBinding(sid) == nil or BAR.GetBinding(sid) == "")
-            UIDropDownMenu_AddButton(info, level)
-
-            -- 各动作条分组（二级菜单入口）
-            local groups = BAR.GetActionBarButtonGroups()
-            for _, grp in ipairs(groups) do
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = grp.label
-                info.value = grp.prefix or grp.label
-                info.hasArrow = true
-                info.notCheckable = true
-                UIDropDownMenu_AddButton(info, level)
-            end
-        elseif level == 2 then
-            -- 二级：某动作条下的具体按钮，显示为纯数字 1..12（值仍为完整按钮名）
-            local key = UIDROPDOWNMENU_MENU_VALUE
-            local groups = BAR.GetActionBarButtonGroups()
-            for _, grp in ipairs(groups) do
-                if (grp.prefix or grp.label) == key then
-                    for i, g in ipairs(grp.names) do
-                        local info = UIDropDownMenu_CreateInfo()
-                        info.text = tostring(i)
-                        info.value = g
-                        info.func = function()
-                            BAR.SetBinding(sid, g)
-                            UIDropDownMenu_SetText(dropdown, grp.label .. " " .. tostring(i))
-                        end
-                        info.checked = (BAR.GetBinding(sid) == g)
-                        UIDropDownMenu_AddButton(info, level)
-                    end
-                end
-            end
-        end
-    end)
-
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.08)
-
-    return row
-end
-
--- 不需要 我手动注释了
--- function BAR.UpdateStatus()
---     local total, bound = 0, 0
---     for _ in pairs(BAR.knownBuffs) do total = total + 1 end
---     local binds = BAR.db and BAR.db.bindings
---     if binds then
---         for _, v in pairs(binds) do
---             local bn = (type(v) == "table") and v.button or (type(v) == "string" and v or nil)
---             if bn and bn ~= "" then bound = bound + 1 end
---         end
---     end
---     status:SetText("已捕获 " .. total .. " 个增益 ｜ 已绑定 " .. bound .. " 个按钮")
--- end
-
-function BAR.BuildList()
-    if not panel or not panel.scrollChild then return end
-    local buffs = {}
-    for _, b in pairs(BAR.knownBuffs) do
-        buffs[#buffs + 1] = b
-    end
-    -- 按名称排序
-    table.sort(buffs, function(a, b)
-        return (a.name or "") < (b.name or "")
-    end)
-
-    local child = panel.scrollChild
-    local width = scroll:GetWidth() or 660
-    child:SetWidth(width)
-
-    local rows = panel.rows
-    for i, b in ipairs(buffs) do
-        local row = rows[i] or MakeRow(child, i)
-        rows[i] = row
-        row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", child, "TOPLEFT", 4, -(i - 1) * ROW_H)
-        row:SetPoint("RIGHT", child, "RIGHT", -4, 0)
-        row.spellID = b.spellID
-        if b.icon then
-            row.Icon:SetTexture(b.icon)
-            row.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        else
-            row.Icon:SetTexture(134400)
-        end
-        row.Name:SetText(b.name or ("#" .. b.spellID))
-        -- 绑定下拉框：记录本行 spellID 并显示当前绑定
-        row.DropDown.spellID = b.spellID
-        local bound = BAR.GetBinding(b.spellID)
-        UIDropDownMenu_SetText(row.DropDown, BAR.GetBarLabelForButton(bound))
-        row.PosTime.spellID = b.spellID
-        UIDropDownMenu_SetText(row.PosTime, GetTimePos(b.spellID))
-        row:SetShown(true)
-    end
-    -- 隐藏多余的行
-    for i = #buffs + 1, #rows do
-        rows[i]:Hide()
-    end
-
-    child:SetHeight(math.max(1, #buffs * ROW_H + 8))
-    --BAR.UpdateStatus()  --不需要显示这部分
-end
-
--- 面板显示时重新扫描并重建列表
-panel:SetScript("OnShow", function()
-    if BAR.Rescan then BAR.Rescan() end
-    BAR.BuildList()
-    if BAR.RebuildOverlays then BAR.RebuildOverlays() end
-    SyncToggles()   -- 同步开关到真实存值，修正「钩子打上但实际关闭」的显示错位
-end)
-
--- 列表内容变化时，若面板打开则实时刷新
-BAR.OnBuffsChanged = function()
-    if panel:IsVisible() then BAR.BuildList() end
-end
-
--- 切专精时由 Core.SelectSpec 调用：面板打开则重建绑定列表（反映新专精的 bindings）
-BAR.RefreshOptionsIfOpen = function()
-    if panel and panel:IsVisible() then BAR.BuildList() end
-end
-
--- 命令：/bar 打开配置；/bar debug 输出已捕获增益；/bar rescan 重新扫描
-SLASH_BAR1 = "/bar"
-SlashCmdList["BAR"] = function(msg)
-    msg = strtrim(msg or "")
-    msg = msg:lower()
-    if msg == "debug" then
-        BAR.DebugPrint()
-    elseif msg == "rescan" then
+-- 自动刷新：检测「CDM 活动帧集合」或「专精」变化，任一变化即重扫 knownBuffs 并重绘。
+--   ⚠️ 不能用 knownBuffs 自身数量做比较——它只在 Rescan/OnAcquireItemFrame 时更新，
+--      在官方 CDM 里启用/禁用技能并不会触发这两者，导致列表冻结。故改为比对
+--      BAR.GetActiveViewerSignature()（CDM 活动帧的真实 spellID 集合）：
+--      启用/禁用技能会改变活动帧集合 → 签名变 → Rescan → 列表刷新。
+--   即使窗口未打开，NotifyChange 也仅标记脏、下次打开即显示最新；窗口已打开则立即重绘。
+local lastSig = nil
+local lastSpec = nil
+C_Timer.NewTicker(0.5, function()
+    local sig = BAR.GetActiveViewerSignature and BAR.GetActiveViewerSignature() or ""
+    local idx = GetSpecialization()
+    local spec = (idx and idx > 0) and (GetSpecializationInfo(idx)) or 0
+    if sig ~= lastSig or spec ~= lastSpec then
+        lastSig = sig
+        lastSpec = spec
         if BAR.Rescan then BAR.Rescan() end
-        print("|cff00ccff[ButtonAurasReborn]|r 已重新扫描 CDM。")
-    else
-        Settings.OpenToCategory(category.ID)
+        BuildManualArgs()
+        AceConfigRegistry:NotifyChange("CDMEnhanced")
     end
+end)
+
+-- 列表内容变化时若需刷新（数据到达 / 扫描后）
+BAR.OnBuffsChanged = function()
+    BuildManualArgs()
+    AceConfigRegistry:NotifyChange("CDMEnhanced")
+end
+
+-- 切专精时由 Core.SelectSpec 调用：重建绑定列表（反映新专精的 bindings）
+BAR.RefreshOptionsIfOpen = function()
+    BuildManualArgs()
+    AceConfigRegistry:NotifyChange("CDMEnhanced")
 end

@@ -1,15 +1,15 @@
--- ButtonAurasReborn/Settings.lua
+-- CDMEnhanced/Settings.lua
 -- 全局样式配置（字体 / 字号 / 颜色），供 Overlay.lua（手动绑定）与 AutoCDM.lua（自动发现）共用。
--- 本文件必须在所有其它文件【之前】加载（见 ButtonAurasReborn.toc）。
+-- 本文件必须在所有其它文件【之前】加载（见 CDMEnhanced.toc）。
 -- 改这里即可统一调整两处显示，无需分别改两个文件。
 --
 -- ⚠️ 颜色用 RGB 0~1 浮点：{ R/255, G/255, B/255 }。
 --    例如 F0FF00 黄 = { 0xF0/255, 0xFF/255, 0x00/255 }；纯白 = { 1, 1, 1 }。
 
 -- 确保全局命名空间存在（Core.lua 也会建，这里最先加载先兜底）
-ButtonAurasReborn = ButtonAurasReborn or {}
+CDMEnhanced = CDMEnhanced or {}
 local S = {}
-ButtonAurasReborn.Settings = S
+CDMEnhanced.Settings = S
 
 -- =========================================================
 -- 字体与字号

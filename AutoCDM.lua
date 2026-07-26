@@ -1,4 +1,4 @@
--- ButtonAurasReborn/AutoCDM.lua
+-- CDMEnhanced/AutoCDM.lua
 -- 自动发现模块：完整移植 CDMButtonAuras 的【自动发现】逻辑（事件触发 / 更新时机 / 匹配方式
 -- 与 CDMButtonAuras 完全一致）。渲染层同样对齐 CDM：
 --   · 覆盖层 = 动作按钮的子帧（随按钮自动定位，零延迟，无 GetRect 重定位）；
@@ -10,7 +10,7 @@
 -- ⚠️ 与 CDMButtonAuras 同框运行时：本模块的 hook 标记用 __BARAutoCDMHooked（不与其
 --   __CDMBAHooked 冲突），否则会被对方抢先标记导致本模块永不 hook → 永远不更新。
 
-local BAR = ButtonAurasReborn
+local BAR = CDMEnhanced
 if not BAR then return end
 
 local AutoCDM = {}
@@ -23,12 +23,6 @@ local S = BAR.Settings or {}
 -- 但 GetOverlay 的 OnCooldownDone 闭包需捕获同一 upvalue，故此处先声明。
 local UpdateOverlay
 
--- 诊断开关：/run ButtonAurasReborn.AutoCDM.debug = true
--- 开启后打印关键更新链路（Acquire/Hook/UpdateFromItem/RefreshAll），用于对照 CDM 排查"更新不及时"。
-AutoCDM.debug = false
-local function D(msg)
-    if AutoCDM.debug then print("|cff00ccff[AutoCDM]|r " .. msg) end
-end
 
 -- CDM 两个查看器（与 CDMButtonAuras 完全一致：BuffIconCooldownViewer / BuffBarCooldownViewer）
 local VIEWER_NAMES = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
@@ -207,9 +201,6 @@ local function UpdateFromItem(item)
     if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCooldownInfo then return end
     local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(item.cooldownID)
     if cdInfo and cdInfo.spellID then
-        D(("UpdateFromItem cd=%s spell=%s unit=%s inst=%s")
-            :format(tostring(item.cooldownID), tostring(cdInfo.spellID),
-                    tostring(item.auraDataUnit), tostring(item.auraInstanceID)))
         -- 取 debuff 判定（仅读非 secret 的 isHarmful 布尔，pcall 兜底，不碰受保护数字）
         -- ⚠️ 不能用 auraType 字符串比对：新客户端 auraType 是 Enum 数字，比对永远失败。
         local isHarmful
@@ -244,7 +235,6 @@ end
 local function HookViewerItem(item)
     if not item or item.__BARAutoCDMHooked then return end
     item.__BARAutoCDMHooked = true
-    D("Hook " .. (item:GetName() or (tostring(item):gsub("table", "item"))))
     hooksecurefunc(item, "RefreshData", function()
         if AutoCDM.IsEnabled() then UpdateFromItem(item) end
     end)
@@ -252,7 +242,6 @@ end
 
 -- 对齐 RefreshAllOverlays：先清空所有覆盖层，再重扫两个查看器 + player 增益，最后统一 Update
 local function RefreshAllOverlays()
-    D("RefreshAll")
     for _, overlay in pairs(overlays) do
         SetAura(overlay, nil, nil, nil)
     end
@@ -280,7 +269,6 @@ local function InstallHooks()
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, f)
                     if not AutoCDM.IsEnabled() then return end
                     if f then
-                        D("Acquire " .. (f:GetName() or tostring(f)))
                         HookViewerItem(f)
                     end
                 end)
@@ -298,28 +286,30 @@ local function Initialize()
 end
 
 -- =========================================================
--- 启用开关（存盘于 ButtonAurasRebornDB.autoCDM.enabled，默认开启）
+-- 启用开关（存盘于 CDMEnhancedDB.autoCDM.enabled，默认开启）
 -- =========================================================
 function AutoCDM.EnsureDB()
-    ButtonAurasRebornDB = ButtonAurasRebornDB or {}
-    ButtonAurasRebornDB.autoCDM = ButtonAurasRebornDB.autoCDM or {}
-    if ButtonAurasRebornDB.autoCDM.enabled == nil then
-        ButtonAurasRebornDB.autoCDM.enabled = true
+    CDMEnhancedDB = CDMEnhancedDB or {}
+    CDMEnhancedDB.autoCDM = CDMEnhancedDB.autoCDM or {}
+    if CDMEnhancedDB.autoCDM.enabled == nil then
+        CDMEnhancedDB.autoCDM.enabled = true
     end
 end
 
 function AutoCDM.IsEnabled()
-    return ButtonAurasRebornDB and ButtonAurasRebornDB.autoCDM
-        and ButtonAurasRebornDB.autoCDM.enabled ~= false
+    return CDMEnhancedDB and CDMEnhancedDB.autoCDM
+        and CDMEnhancedDB.autoCDM.enabled ~= false
 end
 
 function AutoCDM.SetEnabled(v)
     AutoCDM.EnsureDB()
-    ButtonAurasRebornDB.autoCDM.enabled = v
+    CDMEnhancedDB.autoCDM.enabled = v
     if v then
         RefreshAllOverlays()
+        print("|cff33ccff[CDMEnhanced]|r 光环自动发现已【启用】。")
     else
         for _, ov in pairs(overlays) do ov:Hide() end
+        print("|cff33ccff[CDMEnhanced]|r 光环自动发现已【关闭】。")
     end
 end
 

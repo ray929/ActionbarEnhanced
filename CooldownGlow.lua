@@ -1,4 +1,4 @@
--- ButtonAurasReborn/CooldownGlow.lua
+-- CDMEnhanced/CooldownGlow.lua
 -- 冷却高亮提醒：读取暴雪冷却管理器（CDM）【主冷却 / Main cooldowns】分组里的技能，
 -- 当某技能冷却完成（就绪可用）后用 LibCustomGlow 的 Proc Glow 给对应动作条按钮高亮，
 -- 并【保持常亮】直到该技能被使用（重新进入冷却）才熄灭——一眼看清哪些大招可用。
@@ -18,11 +18,11 @@
 --   · 刷新采用事件驱动（参考 VFlow 的 SpellStateWatcher）：监听 ACTIONBAR_UPDATE_COOLDOWN /
 --     SPELL_UPDATE_COOLDOWN / SPELL_UPDATE_CHARGES 等，用 dispatchFrame 把同帧多次事件合并为一次
 --     评估，去掉原 0.2s 轮询 ticker，更省 CPU、更跟手。
---   · 单一配置开关「是否启用冷却高亮提醒」，存于 ButtonAurasRebornDB.cooldownGlow.enabled，
+--   · 单一配置开关「是否启用冷却高亮提醒」，存于 CDMEnhancedDB.cooldownGlow.enabled，
 --     因 SavedVariables 是账号级（战网账号共享），故天然「战网生效」。
 --   · 动作条切换（翻页/姿态/载具/额外动作条）通过事件重评估，发光跟随按钮当前指向的技能。
 
-local BAR = ButtonAurasReborn
+local BAR = CDMEnhanced
 if not BAR then return end
 
 local CG = {}
@@ -32,39 +32,33 @@ BAR.CooldownGlow = CG
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
 CG._LCG = LCG
 
--- 诊断开关：/run ButtonAurasReborn.CooldownGlow.debug = true
-CG.debug = false
-local function D(msg)
-    if CG.debug then print("|cff66ff99[CooldownGlow]|r " .. msg) end
-end
 
 -- =========================================================
--- 配置开关（存盘于 ButtonAurasRebornDB.cooldownGlow.enabled，默认开启）
+-- 配置开关（存盘于 CDMEnhancedDB.cooldownGlow.enabled，默认开启）
 -- 账号级 SavedVariables → 战网账号共享生效。
 -- =========================================================
 function CG.EnsureDB()
-    ButtonAurasRebornDB = ButtonAurasRebornDB or {}
-    ButtonAurasRebornDB.cooldownGlow = ButtonAurasRebornDB.cooldownGlow or {}
-    if ButtonAurasRebornDB.cooldownGlow.enabled == nil then
-        ButtonAurasRebornDB.cooldownGlow.enabled = true
+    CDMEnhancedDB = CDMEnhancedDB or {}
+    CDMEnhancedDB.cooldownGlow = CDMEnhancedDB.cooldownGlow or {}
+    if CDMEnhancedDB.cooldownGlow.enabled == nil then
+        CDMEnhancedDB.cooldownGlow.enabled = true
     end
 end
 
 function CG.IsEnabled()
-    return ButtonAurasRebornDB and ButtonAurasRebornDB.cooldownGlow
-        and ButtonAurasRebornDB.cooldownGlow.enabled ~= false
+    return CDMEnhancedDB and CDMEnhancedDB.cooldownGlow
+        and CDMEnhancedDB.cooldownGlow.enabled ~= false
 end
 
 function CG.SetEnabled(v)
     CG.EnsureDB()
-    ButtonAurasRebornDB.cooldownGlow.enabled = v
+    CDMEnhancedDB.cooldownGlow.enabled = v
     if v then
         CG.Start()
-        CG._announced = nil   -- 允许再次打印状态，便于确认本次启用效果
-        print("|cff66ff99[CooldownGlow]|r 冷却高亮提醒已【启用】。")
+        print("|cff33ccff[CDMEnhanced]|r 冷却高亮提醒已【启用】。")
     else
         CG.StopAll()
-        print("|cff66ff99[CooldownGlow]|r 冷却高亮提醒已【关闭】。")
+        print("|cff33ccff[CDMEnhanced]|r 冷却高亮提醒已【关闭】。")
     end
 end
 
@@ -84,9 +78,10 @@ end
 --   （参考 VFlow 的 BuffScanner / StyleLayout：扫 viewer.itemFramePool:EnumerateActive()，
 --   每个 frame 挂 cooldownID → GetCooldownViewerCooldownInfo → spellID）。
 --   这样「只启用灰烬觉醒」就能精准做到只有它发光。
---   冷启动兜底：若 essential viewer active frame 为空（重载后灰烬觉醒尚未在 viewer 登记），
---   回退到 GetCooldownViewerCategorySet(Essential) 取全部分类，避免空白期一个都不亮。
-local COOLDOWN_CATEGORY = (Enum and Enum.CooldownViewerCategory and Enum.CooldownViewerCategory.Essential) or 0
+--   冷启动（重载后 viewer 尚未登记 active item）时 active 列表为空 → 不发光，
+--   由登录后延迟重评估（C_Timer.After）与后续冷却事件补齐，不会长时间空白。
+--   ❌ 绝不可回退 GetCooldownViewerCategorySet(Essential)：那会返回全分类【所有已学】技能
+--      （含用户故意未监控的），导致「CDM 监控为空时所有技能都发光」。
 
 -- 从单个 cooldownID 解析出用于匹配的 spellID：优先 linkedSpellIDs[1]（VFlow 同款顺序），
 -- 其次 overrideSpellID，最后 spellID，覆盖天赋/形态变体导致的动作条 spellID 不一致。
@@ -124,38 +119,14 @@ local function GetTrackedFromViewer()
     return set
 end
 
--- 兜底：取 Essential 分类下全部已学技能（冷启动 / viewer 不可用时用）
-local function GetTrackedFromCategory()
-    local set = {}
-    if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then
-        return set
-    end
-    local ok, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, COOLDOWN_CATEGORY, false)
-    if not ok or not ids then return set end
-    for _, cid in ipairs(ids) do
-        local ok2, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cid)
-        if ok2 and info then
-            local sid = ResolveSpellID(info)
-            if sid and sid > 0 then set[sid] = true end
-            if info.linkedSpellIDs then
-                for _, lsid in ipairs(info.linkedSpellIDs) do
-                    if lsid and lsid > 0 then set[lsid] = true end
-                end
-            end
-        end
-    end
-    return set
-end
-
--- 优先用 viewer active frame（精准体现用户启用），空则回退分类集合（冷启动兜底）
+-- 始终以 EssentialCooldownViewer 的 active item 为准（= 用户在 CDM 实际启用的主冷却技能）。
+-- 绝不可用 GetCooldownViewerCategorySet 兜底"全部分类成员"——那会返回该分类下【所有已学】
+-- 技能（含用户故意未监控的），导致"CDM 监控为空时所有技能都发光"（bug #3）。
+-- 用户把某技能从 CDM 监控里移除 → 它不在 active item 中 → 不再发光，符合预期。
+-- 冷启动（viewer 尚未建立 item frame）时返回空集，由登录后延迟重评估（C_Timer.After）
+-- 与后续冷却事件补齐，不会长时间空白。
 local function GetTrackedSpellIDs()
-    local set = GetTrackedFromViewer()
-    local n = 0; for _ in pairs(set) do n = n + 1 end
-    if n == 0 then
-        -- 冷启动：CDM viewer 尚未登记任意 active item，回退到分类集合避免空白期
-        set = GetTrackedFromCategory()
-    end
-    return set
+    return GetTrackedFromViewer()
 end
 
 -- 某 spellID 的冷却信息（start/duration/enabled），兼容两种返回形态：
@@ -240,7 +211,14 @@ CG._glowing = CG._glowing or {}     -- [button] = spellID
 
 local function ProcGlowStart(btn)
     if not LCG then return end
-    LCG.ProcGlow_Start(btn, { key = "BAR", startAnim = true, color = { 0.4, 0.95, 1.0, 1 } })
+    -- ⚠️ 关键防叠层：LibCustomGlow 每次 ProcGlow_Start 都会新建一张 _ProcGlowBAR 发光帧，
+    --   不会复用/顶替上一张（key 仅用于 Stop 查找，不是"同 key 替换"）。若重复 Start
+    --   而不先 Stop，发光帧会逐层叠加、越来越厚（用户反馈的"叠层越来越厚重"根因）。
+    --   因此每次 Start 前先确保旧帧已移除：能查到就 Stop 一次（幂等），再 Start 新帧。
+    if btn then
+        pcall(LCG.ProcGlow_Stop, btn, "BAR")
+    end
+    LCG.ProcGlow_Start(btn, { key = "BAR", startAnim = true, color = { 0.3, 1.0, 0.4, 1 }, scale = 0.8 })
 end
 
 local function ProcGlowStop(btn)
@@ -257,14 +235,10 @@ local function StopGlow(btn)
 end
 
 -- 判定按钮是否处于「冷却」中（停止高亮用）。
--- 核心用 C_Spell.GetSpellCooldown(sid).isActive —— 12.x 新增的 NeverSecret 布尔：
---   冷却未激活（未启用、或 startTime/duration 为 0）时为 false，否则（含 GCD 与真实冷却）为 true。
--- ✅ isActive 是布尔、非 secret：读取与布尔判断都安全，绝不触发「secret number 比较」报错
---   （先前用 cooldown 帧 GetCooldownTimes() 取 start/duration 算剩余，那些是 secret number，
---    一参与算术/比较就抛 "attempt to compare local 'dur' (a secret number value)"，已弃用）。
---   比冷却帧 IsShown()/GetCooldownTimes 更可靠：不依赖冷却帧 shown 状态，也不受 secret 限制。
---   施放后整段冷却（GCD + 真实 CD）isActive 均为 true → 高亮熄灭；冷却结束（startTime/duration=0）
---   才变 false → 高亮重新亮起，无闪烁。
+-- 用 isActive（NeverSecret 布尔：含 GCD 与真实冷却为 true，就绪为 false）排除纯 GCD：
+--   isActive=true 且 isOnGCD=false → 真实冷却中 → 熄灭高亮；
+--   isActive=true 且 isOnGCD=true  → 仅 GCD（施放其他技能触发）→ 保持高亮，避免"用任意技能高亮闪灭 1~2 秒"。
+-- ⚠️ startTime/duration 是 secret number，绝不能算术/比较/tostring（会抛 secret 报错）；只用这两个布尔。
 local function IsOnCooldown(btn, sid)
     if not sid then return false end
     if not GetSpellCD then
@@ -275,8 +249,8 @@ local function IsOnCooldown(btn, sid)
     end
     local ok, cd = pcall(GetSpellCD, sid)
     if ok and type(cd) == "table" then
-        -- isActive 为 NeverSecret 布尔：冷却激活即为 true，就绪为 false
-        if cd.isActive then return true end
+        -- 真实冷却（非纯 GCD）才熄灭；纯 GCD 保持高亮
+        if cd.isActive and not cd.isOnGCD then return true end
         return false
     end
     -- pcall 失败（如法术不存在）→ 按未冷却处理，保持高亮，避免误灭
@@ -285,7 +259,7 @@ end
 
 -- 重评估：遍历动作条按钮 → 取按钮自身 spellID → CDM【主冷却】白名单过滤
 --   → 就绪即常亮：在「主冷却」分组里、且当前就绪（冷却帧隐藏）的技能按钮发光；
---     一旦被使用进入冷却（冷却帧显示）立即熄灭。无论战斗内外都高亮。
+--     进入真实冷却（非纯 GCD）即熄灭；施放其他技能触发的纯 GCD 不影响高亮。无论战斗内外都高亮。
 -- 用「按钮自身 spellID」做匹配，避免 CDM spellID 与动作条 spellID 不一致导致的匹配失败。
 function CG.Evaluate()
     if not CG.IsEnabled() then return end
@@ -293,7 +267,6 @@ function CG.Evaluate()
     -- 1) CDM【主冷却】技能白名单（仅用于过滤，不用于反查按钮）
     local tracked = GetTrackedSpellIDs()
     local nTracked = 0; for _ in pairs(tracked) do nTracked = nTracked + 1 end
-    D("主冷却技能数: " .. nTracked)
 
     -- 2) 遍历所有动作条按钮：就绪且被主冷却追踪 → 发光；冷却中/未追踪 → 不发光
     local shouldGlow = {}
@@ -304,7 +277,6 @@ function CG.Evaluate()
                 local sid = GetButtonSpellID(btn)
                 if sid and sid > 0 and tracked[sid] then
                     local onCd = IsOnCooldown(btn, sid)
-                    D(string.format("  tracked 按钮 %s%d sid=%s onCd=%s", prefix, i, tostring(sid), tostring(onCd)))
                     if not onCd then
                         shouldGlow[btn] = true
                         if not CG._glowing[btn] then
@@ -316,7 +288,6 @@ function CG.Evaluate()
             end
         end
     end
-    D("本次发光按钮数: " .. tostring((function() local n=0; for _ in pairs(shouldGlow) do n=n+1 end; return n end)()))
 
     -- 3) 停止发光：按钮不再应发光（指向改变 / 不再被主冷却追踪 / 进入冷却）即熄灭
     for btn in pairs(CG._glowing) do
@@ -325,24 +296,13 @@ function CG.Evaluate()
         end
     end
 
-    -- 一次性状态公告：重载后第一次评估即打印到聊天框，便于快速判断「为何没高亮」。
-    -- 三种典型情况一眼区分：LCG 未加载（Start 已单独报错）、主冷却分组为空、数据正常但仍不亮（视觉/atlas 问题）。
-    if not CG._announced then
-        CG._announced = true
-        local nGlow = 0; for _ in pairs(CG._glowing) do nGlow = nGlow + 1 end
-        if nTracked == 0 then
-            print("|cff66ff99[CooldownGlow]|r 已启用，但【主冷却分组为空】——请在暴雪冷却管理器(CDM)设置里把技能拖入「主冷却」分组，重载后才会发光。")
-        else
-            print(string.format("|cff66ff99[CooldownGlow]|r 已启用：主冷却追踪 %d 个技能，当前发光 %d 个按钮。", nTracked, nGlow))
-        end
-    end
 end
 
 -- 停止所有发光（关闭开关 / 卸载评估时）
 function CG.StopAll()
     if not LCG then return end
     for btn in pairs(CG._glowing) do
-        LCG.ProcGlow_Stop(btn)
+        LCG.ProcGlow_Stop(btn, "BAR")
     end
     CG._glowing = {}
 end
@@ -368,7 +328,7 @@ end
 function CG.Start()
     if not LCG then
         -- 不再静默失败：用户能在聊天框直接看到这条，避免「没报错也没高亮」的困惑
-        print("|cff66ff99[CooldownGlow]|r 错误：LibCustomGlow 未加载，冷却高亮不可用（检查 Libs/LibCustomGlow-1.0 是否正确加载）")
+        print("|cff33ccff[CDMEnhanced]|r 错误：LibCustomGlow 未加载，冷却高亮不可用（检查 Libs/LibCustomGlow-1.0 是否正确加载）")
         return
     end
     ScheduleEvaluate()
@@ -404,11 +364,14 @@ evFrame:SetScript("OnEvent", function(_, event)
                 C_Timer.After(1.0, function()
                     if CG.IsEnabled() then ScheduleEvaluate() end
                 end)
+                -- 二次延迟：防 viewer 在 1s 时仍未就绪的极端冷启动（避免迟迟不亮）
+                C_Timer.After(3.0, function()
+                    if CG.IsEnabled() then ScheduleEvaluate() end
+                end)
             end
-        else
-            -- 开关关闭时明确告知，避免「没报错也没高亮」的困惑（此前静默，用户无从排查）
-            print("|cff66ff99[CooldownGlow]|r 冷却高亮提醒当前为【关闭】状态，不发光。启用方式：插件设置(ButtonAurasReborn)勾选「冷却高亮提醒」，或聊天框输入 /run ButtonAurasReborn.CooldownGlow.SetEnabled(true)")
-        end
+    else
+        -- 开关关闭时不发光（无需其他处理）
+    end
     else
         -- 动作条切换 / 冷却变化 / 天赋变动：合并到下一帧统一评估（同帧多次事件只评估一次）
         ScheduleEvaluate()
@@ -420,51 +383,4 @@ function CG.RefreshAll()
     CG.Evaluate()
 end
 
--- 详细诊断：打印 tracked spellID 的冷却状态 + 所有动作条按钮（含类型）比对（一次性输出，不刷屏）
--- 用法：/run ButtonAurasReborn.CooldownGlow.Diag()
-function CG.Diag()
-    print("|cff66ff99=== CooldownGlow 诊断 ===|r")
-    print("开关: " .. (CG.IsEnabled() and "已启用" or "已关闭") .. " | LCG 加载: " .. tostring(LCG ~= nil))
-    print("C_CooldownViewer 可用: " .. tostring(C_CooldownViewer ~= nil
-        and C_CooldownViewer.GetCooldownViewerCategorySet ~= nil))
-    local viewer = _G.EssentialCooldownViewer
-    local nActive = 0
-    if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
-        for _ in viewer.itemFramePool:EnumerateActive() do nActive = nActive + 1 end
-    end
-    print("EssentialCooldownViewer 可用: " .. tostring(viewer ~= nil)
-        .. " | viewer active item 数: " .. tostring(nActive)
-        .. " （=用户在CDM实际启用的主冷却技能）")
-    local okC, ids = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, COOLDOWN_CATEGORY, false)
-    print("categorySet 原始 cooldownID 数(兜底用，含不显示): " .. (okC and ids and tostring(#ids) or "ERR(" .. tostring(ids) .. ")"))
-    local tracked = GetTrackedSpellIDs()
-    print("-- tracked (CDM 主冷却，实际启用) --")
-    for sid in pairs(tracked) do
-        local start, dur, enabled, isActive = SpellCDVals(sid)
-        local name = (C_Spell and C_Spell.GetSpellName) and C_Spell.GetSpellName(sid) or GetSpellInfo(sid)
-        local cdinfo
-        if isActive ~= nil then
-            -- 表形态：startTime/duration 是 secret number，tostring 也危险，仅打印安全字段
-            cdinfo = string.format("isActive=%s enabled=%s", tostring(isActive), tostring(enabled))
-        else
-            cdinfo = string.format("start=%s dur=%s enabled=%s", tostring(start), tostring(dur), tostring(enabled))
-        end
-        print(string.format("  spellID=%s name=%s | CD: %s | IsSpellReady=%s",
-            tostring(sid), tostring(name), cdinfo, tostring(IsSpellReady(sid))))
-    end
-    print("-- 动作条按钮（不要求 IsShown，含类型，便于定位宏/飞出里的法术）--")
-    for _, prefix in ipairs(ACTION_BAR_PREFIXES) do
-        for i = 1, 12 do
-            local btn = _G[prefix .. i]
-            if btn and btn.action then
-                local _, at, id = pcall(GetActionInfo, btn.action)
-                local sid = GetButtonSpellID(btn)
-                local inT = (sid and tracked[sid]) and "|cff00ff00YES|r" or "|cffff9900no|r"
-                print(string.format("  %s%d action=%s type=%s id=%s spellID=%s IsShown=%s inTracked=%s ready=%s",
-                    prefix, i, tostring(btn.action), tostring(at), tostring(id), tostring(sid),
-                    tostring(btn:IsShown()), inT, tostring(sid and IsSpellReady(sid))))
-            end
-        end
-    end
-    print("|cff66ff99=== 诊断结束 ===|r")
-end
+
