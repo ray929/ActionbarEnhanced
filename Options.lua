@@ -101,8 +101,42 @@ autoChk:SetScript("OnClick", function()
     if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(autoChk:GetChecked()) end
 end)
 
+-- 冷却高亮提醒开关（由 CooldownGlow.lua 实现，存 ButtonAurasRebornDB.cooldownGlow.enabled）
+-- 读取 CDM 已启用的技能冷却，冷却完成时给对应动作条按钮 Proc Glow。
+-- 注意：CooldownGlow.lua 已在 TOC 中先于本文件加载，故此处可直接读取 BAR.CooldownGlow。
+local glowChk = CreateFrame("CheckButton", nil, panel)
+glowChk:SetSize(18, 18)
+glowChk:SetPoint("TOPLEFT", autoChk, "BOTTOMLEFT", 0, -8)
+glowChk:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+glowChk:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+glowChk:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
+glowChk:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+if BAR.CooldownGlow then
+    BAR.CooldownGlow.EnsureDB()
+    glowChk:SetChecked(BAR.CooldownGlow.IsEnabled())
+end
+local glowLbl = glowChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+glowLbl:SetPoint("LEFT", glowChk, "RIGHT", 6, 0)
+glowLbl:SetText("冷却高亮提醒（技能冷却完成时发光）")
+glowChk:SetScript("OnClick", function()
+    if BAR.CooldownGlow then BAR.CooldownGlow.SetEnabled(glowChk:GetChecked()) end
+end)
+
+-- 同步两个开关复选框到「真实的当前存值」：每次面板显示时调用，
+-- 避免面板创建时机（ADDON_LOADED）读到的过时/尚未初始化的 DB 导致「钩子打上但实际关闭」的显示错位。
+local function SyncToggles()
+    if BAR.AutoCDM then
+        BAR.AutoCDM.EnsureDB()
+        autoChk:SetChecked(BAR.AutoCDM.IsEnabled())
+    end
+    if BAR.CooldownGlow then
+        BAR.CooldownGlow.EnsureDB()
+        glowChk:SetChecked(BAR.CooldownGlow.IsEnabled())
+    end
+end
+
 local manualLbl = autoChk:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-manualLbl:SetPoint("TOPLEFT", autoLbl, "BOTTOMLEFT", 0, -15)
+manualLbl:SetPoint("TOPLEFT", glowLbl, "BOTTOMLEFT", 0, -15)
 manualLbl:SetText("手动配置")
 
 
@@ -292,6 +326,7 @@ panel:SetScript("OnShow", function()
     if BAR.Rescan then BAR.Rescan() end
     BAR.BuildList()
     if BAR.RebuildOverlays then BAR.RebuildOverlays() end
+    SyncToggles()   -- 同步开关到真实存值，修正「钩子打上但实际关闭」的显示错位
 end)
 
 -- 列表内容变化时，若面板打开则实时刷新
