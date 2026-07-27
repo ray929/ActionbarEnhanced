@@ -1,4 +1,4 @@
--- CDMEnhanced/Options.lua
+-- ActionbarEnhanced/Options.lua
 -- 配置 GUI：基于 Ace3（AceConfig + AceConfigDialog），独立窗口，不依赖暴雪新设置系统。
 -- ⚠️ 为什么不用暴雪 Settings.RegisterCanvasLayout*：
 --    canvas-layout 子页面在 12.x 里 manualPanel 永远不让自己 IsVisible() 变 true（OnShow 也不触发），
@@ -6,11 +6,11 @@
 --    改用 AceConfigDialog 独立窗口后，窗口是普通 frame，刷新可靠，彻底绕开该 bug。
 -- 入口仅 Addon Compartment（无 slash 命令）。
 
-local BAR = CDMEnhanced
+local BAR = ActionbarEnhanced
 if not BAR then return end
 
-local ADDON_FOLDER = "CDMEnhanced"
-local addonName = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "Title") or "CDM Enhanced"
+local ADDON_FOLDER = "Actionbar Enhanced"
+local addonName = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "Title") or "Actionbar Enhanced"
 
 local AceConfig = LibStub("AceConfig-3.0")
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
@@ -32,6 +32,13 @@ end
 
 local POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右" }
 
+-- 冷却高亮时长枚举：0 = 常亮；1~5 = 就绪后亮 N 秒自动熄灭
+local GLOW_DUR_VALUES = { [0] = "常亮", [1] = "1 秒", [2] = "2 秒", [3] = "3 秒", [4] = "4 秒", [5] = "5 秒" }
+
+-- 按钮文字设置：仅在「基本配置」放一个总开关；倍率 / 位置 / 描边均硬编码于 ButtonText.lua。
+-- 开关改动即写 DB 并实时 BT.ApplyAll()。
+local BT = BAR.ButtonText
+
 -- 自定义 AceGUI 控件「图标 + 位置 + 绑定」同一行：
 --   放大的图标（可悬停显示暴雪原生法术 tooltip） + 位置下拉 + 绑定技能输入框，三者 Flow 横向并排。
 --   以 dialogControl 挂在 description 选项上；AceConfig 对 description 会调用 widget:SetText(options.name)，
@@ -44,7 +51,12 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
     widget.SetFontObject = function() end
     widget.SetText = function(self, text)
         self:ReleaseChildren()
-        local sid, icon = (text or ""):match("^([^\001]+)\001([^\001]+)$")
+        -- 编码："sid\1icon\1name"（name 可空，兼容仅两段的旧调用）
+        local sid, icon, spellName = (text or ""):match("^([^\001]+)\001([^\001]+)\001([^\001]*)$")
+        if not spellName then
+            sid, icon = (text or ""):match("^([^\001]+)\001([^\001]+)$")
+            spellName = nil
+        end
         sid = sid and tonumber(sid)
         icon = icon and tonumber(icon)
         self:SetLayout("Flow")
@@ -71,6 +83,16 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
                 end)
             end
             self:AddChild(ic)
+        end
+        -- 光环名（与冷却高亮列表一致：图标后方显示名字，便于辨识每一行）
+        if sid then
+            local name = (spellName and spellName ~= "") and spellName
+                or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid))
+                or GetSpellInfo(sid) or ("#" .. sid)
+            local lbl = AceGUI:Create("Label")
+            lbl:SetText(name)
+            lbl:SetWidth(90)
+            self:AddChild(lbl)
         end
         -- 位置下拉
         local pos = AceGUI:Create("Dropdown")
@@ -99,7 +121,7 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
         local edit = AceGUI:Create("EditBox")
         edit:SetLabel("绑定技能")
         edit:SetText(bs and BAR.GetSpellDisplayName(bs) or "")
-        edit:SetWidth(150)
+        edit:SetWidth(100)
         edit:SetCallback("OnEnterPressed", function(w)
             local val = w:GetText()
             val = val and strtrim(val) or ""
@@ -108,7 +130,7 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
             else
                 local resolved = BAR.ParseSpellInput and BAR.ParseSpellInput(val)
                 if not resolved then
-                    print("|cffff6666[CDMEnhanced]|r 无法识别技能：" .. val)
+                    print("|cffff6666[ActionbarEnhanced]|r 无法识别技能：" .. val)
                 else
                     BAR.SetBoundSpell(sid, resolved)
                 end
@@ -120,43 +142,121 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
     return widget
 end, 1)
 
+-- 自定义 AceGUI 控件「图标 + 技能名 + 高亮时长下拉」同一行（冷却高亮设置用）
+AceGUI:RegisterWidgetType("CDMGlowRow", function()
+    local widget = AceGUI:Create("SimpleGroup")
+    widget.type = "CDMGlowRow"
+    widget.SetFontObject = function() end
+    widget.SetText = function(self, text)
+        self:ReleaseChildren()
+        local sid, icon = (text or ""):match("^([^\001]+)\001([^\001]+)$")
+        sid = sid and tonumber(sid)
+        icon = icon and tonumber(icon)
+        self:SetLayout("Flow")
+        self:SetFullWidth(true)
+        -- 放大的图标（悬停显示暴雪原生法术 tooltip）
+        if icon then
+            local ic = AceGUI:Create("Icon")
+            ic:SetImage(icon, 4 / 64, 60 / 64, 4 / 64, 60 / 64)
+            ic:SetImageSize(32, 32)
+            ic:SetWidth(46)
+            ic:SetHeight(40)
+            ic.image:ClearAllPoints()
+            ic.image:SetPoint("CENTER", ic.frame, "CENTER", 0, 0)
+            if sid then
+                ic:SetCallback("OnEnter", function(w)
+                    GameTooltip:SetOwner(w.frame, "ANCHOR_RIGHT")
+                    GameTooltip:SetSpellByID(sid)
+                    GameTooltip:Show()
+                end)
+                ic:SetCallback("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+            end
+            self:AddChild(ic)
+        end
+        if sid then
+            local name = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid))
+                or GetSpellInfo(sid) or ("#" .. sid)
+            local lbl = AceGUI:Create("Label")
+            lbl:SetText(name)
+            lbl:SetWidth(90)
+            self:AddChild(lbl)
+            local dur = AceGUI:Create("Dropdown")
+            dur:SetLabel("高亮时长")
+            dur:SetList(GLOW_DUR_VALUES)
+            dur:SetValue(BAR.CooldownGlow.GetDuration(sid))
+            dur:SetWidth(90)
+            dur:SetCallback("OnValueChanged", function(_, _, v)
+                BAR.CooldownGlow.SetDuration(sid, tonumber(v) or 0)
+                if BAR.CooldownGlow then BAR.CooldownGlow.RefreshAll() end
+            end)
+            self:AddChild(dur)
+        end
+    end
+    return widget
+end, 1)
+
 -- 配置表（顶层：说明 + 「基本配置」子页面 + 「手动配置光环」子页面）
 local options = {
     name = addonName,
     type = "group",
     args = {
-        desc = {
-            type = "description",
-            name = "基于暴雪冷却管理器（CDM）的增益/冷却可视化增强。",
-            order = 1,
-        },
+        -- desc = {
+        --     type = "description",
+        --     name = "基于暴雪冷却管理器（CDM）的增益/冷却可视化增强。",
+        --     order = 1,
+        -- },
         basic = {
             type = "group",
             name = "基本配置",
-            order = 2,
+            order = 1,
             args = {
-                autoCDM = {
-                    type = "toggle",
-                    name = "光环自动发现（自动在动作条上显示 CDM 增益）",
-                    order = 1,
-                    width = "full",
-                    get = function() return BAR.AutoCDM and BAR.AutoCDM.IsEnabled() end,
-                    set = function(_, v) if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(v) end end,
-                },
                 cooldownGlow = {
                     type = "toggle",
-                    name = "冷却高亮提醒（技能冷却完成时对应动作条按钮高亮）",
-                    order = 2,
+                    name = "技能冷却动作条按钮高亮提醒",
+                    order = 1,
                     width = "full",
                     get = function() return BAR.CooldownGlow and BAR.CooldownGlow.IsEnabled() end,
                     set = function(_, v) if BAR.CooldownGlow then BAR.CooldownGlow.SetEnabled(v) end end,
                 },
+                autoCDM = {
+                    type = "toggle",
+                    name = "光环自动发现",
+                    order = 2,
+                    width = "full",
+                    get = function() return BAR.AutoCDM and BAR.AutoCDM.IsEnabled() end,
+                    set = function(_, v) if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(v) end end,
+                },
+                hideBorders = {
+                    type = "toggle",
+                    name = "隐藏原生动作条边框",
+                    order = 3,
+                    width = "full",
+                    get = function() return BAR.HideBorders and BAR.HideBorders.IsEnabled() end,
+                    set = function(_, v) if BAR.HideBorders then BAR.HideBorders.SetEnabled(v) end end,
+                },
+                buttonText = {
+                    type = "toggle",
+                    name = "调整按钮原生文字（按键 / 层数 / 宏文本）",
+                    desc = "开启后按内置倍率调整原生动作条按钮上的按键绑定、层数、宏文本字号并加厚描边（完全替代 MattActionBarFont）。关闭则恢复原生默认样式。",
+                    order = 4,
+                    width = "full",
+                    get = function() return BT and BT.IsEnabled() end,
+                    set = function(_, v) if BT then BT.SetEnabled(v) end end,
+                },
             },
+        },
+        cooldownGlowCfg = {
+            type = "group",
+            name = "冷却高亮设置",
+            order = 10,
+            args = {},
         },
         manual = {
             type = "group",
             name = "手动配置光环",
-            order = 10,
+            order = 20,
             args = {},
         },
     },
@@ -200,7 +300,7 @@ local function BuildManualArgs()
         args["row_" .. sid] = {
             type = "description",
             dialogControl = "CDMIconRow",
-            name = sid .. "\001" .. icon,
+            name = sid .. "\001" .. icon .. "\001" .. (b.name or ""),
             order = base + 1,
             width = "full",
         }
@@ -208,14 +308,54 @@ local function BuildManualArgs()
     options.args.manual.args = args
 end
 
-BuildManualArgs()
+-- 动态构建「冷却高亮设置」列表：列出当前专精在 CDM【主冷却】分组中实际启用的技能，
+-- 每个技能一行 = 图标 + 技能名 + 高亮时长下拉（常亮 / 1~5 秒）。时长按当前专精保存。
+local function BuildCooldownGlowArgs()
+    local args = {}
+    args.intro = {
+        type = "description",
+        name = "设置每个高亮技能【就绪后】的提示时长：常亮 = 一直亮到施放；限时 = 就绪后亮 N 秒自动熄灭（即使仍就绪）。按当前专精独立保存。",
+        order = 0,
+        fontSize = "medium",
+    }
+    if BAR.CooldownGlow and BAR.CooldownGlow.GetTrackedSpellIDs then
+        local tracked = BAR.CooldownGlow.GetTrackedSpellIDs()
+        local list = {}
+        for sid in pairs(tracked) do list[#list + 1] = sid end
+        table.sort(list)
+        if #list == 0 then
+            args.empty = {
+                type = "description",
+                name = "|cff999999（当前专精在 CDM【主冷却】分组中暂无启用的技能，无法配置）|r",
+                order = 1,
+            }
+        end
+        for i, sid in ipairs(list) do
+            local icon = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid))
+                or GetSpellTexture(sid) or 134400
+            local base = i * 10
+            args["sep_" .. sid] = { type = "header", name = "", order = base }
+            args["row_" .. sid] = {
+                type = "description",
+                dialogControl = "CDMGlowRow",
+                name = sid .. "\001" .. icon,
+                order = base + 1,
+                width = "full",
+            }
+        end
+    end
+    options.args.cooldownGlowCfg.args = args
+end
 
-AceConfig:RegisterOptionsTable("CDMEnhanced", options)
+BuildManualArgs()
+BuildCooldownGlowArgs()
+
+AceConfig:RegisterOptionsTable("ActionbarEnhanced", options)
 -- 注：不调用 AddToBlizOptions，避免回到暴雪新设置系统；仅用 AceConfigDialog 独立窗口。
 
 -- 打开配置窗口（供 Addon Compartment 调用）
 local function OpenConfig()
-    AceConfigDialog:Open("CDMEnhanced")
+    AceConfigDialog:Open("ActionbarEnhanced")
 end
 
 -- 将插件快捷方式加入 Addon Compartment
@@ -245,27 +385,34 @@ AddonCompartmentFrame:RegisterAddon({
 --   即使窗口未打开，NotifyChange 也仅标记脏、下次打开即显示最新；窗口已打开则立即重绘。
 local lastSig = nil
 local lastSpec = nil
+local lastCgSig = nil
 C_Timer.NewTicker(0.5, function()
     local sig = BAR.GetActiveViewerSignature and BAR.GetActiveViewerSignature() or ""
+    -- CDM【主冷却】成员签名：用户在 CDM 主冷却分组增删法术会改变它
+    -- （注意它独立于 buff 的 GetActiveViewerSignature，后者不含 EssentialCooldownViewer）。
+    local cgSig = (BAR.CooldownGlow and BAR.CooldownGlow.GetTrackedSignature)
+        and BAR.CooldownGlow.GetTrackedSignature() or ""
     local idx = GetSpecialization()
     local spec = (idx and idx > 0) and (GetSpecializationInfo(idx)) or 0
-    if sig ~= lastSig or spec ~= lastSpec then
+    if sig ~= lastSig or spec ~= lastSpec or cgSig ~= lastCgSig then
         lastSig = sig
         lastSpec = spec
+        lastCgSig = cgSig
         if BAR.Rescan then BAR.Rescan() end
         BuildManualArgs()
-        AceConfigRegistry:NotifyChange("CDMEnhanced")
+        BuildCooldownGlowArgs()
+        AceConfigRegistry:NotifyChange("ActionbarEnhanced")
     end
 end)
 
 -- 列表内容变化时若需刷新（数据到达 / 扫描后）
 BAR.OnBuffsChanged = function()
     BuildManualArgs()
-    AceConfigRegistry:NotifyChange("CDMEnhanced")
+    AceConfigRegistry:NotifyChange("ActionbarEnhanced")
 end
 
 -- 切专精时由 Core.SelectSpec 调用：重建绑定列表（反映新专精的 bindings）
 BAR.RefreshOptionsIfOpen = function()
     BuildManualArgs()
-    AceConfigRegistry:NotifyChange("CDMEnhanced")
+    AceConfigRegistry:NotifyChange("ActionbarEnhanced")
 end

@@ -1,4 +1,4 @@
--- CDMEnhanced/CooldownGlow.lua
+-- ActionbarEnhanced/CooldownGlow.lua
 -- 冷却高亮提醒：读取暴雪冷却管理器（CDM）【主冷却 / Main cooldowns】分组里的技能，
 -- 当某技能冷却完成（就绪可用）后用 LibCustomGlow 的 Proc Glow 给对应动作条按钮高亮，
 -- 并【保持常亮】直到该技能被使用（重新进入冷却）才熄灭——一眼看清哪些大招可用。
@@ -9,8 +9,9 @@
 --     只取用户在 CDM【主冷却】分组里放置的技能；辅助/隐藏分组（Utility 等）不发光。
 --   · 发光用 LibCustomGlow-1.0 的 ProcGlow：glow 帧挂在 UIParent（taint-safe），
 --     仅把动作按钮作为锚父，可安全用于安全动作条按钮，战斗中照常工作。
---   · 就绪即常亮：tracked 集合已是用户精选的「主冷却」技能，故就绪（冷却帧隐藏）就发光、
---     冷却中（冷却帧可见）就熄灭，无需「首次进冷却才武装」之类的额外门槛。
+--   · 就绪发光（时长可配）：tracked 集合已是用户精选的「主冷却」技能，故就绪（冷却帧隐藏）就发光、
+--     冷却中（冷却帧可见，即技能打出去）就熄灭。每个技能可单独设「常亮」或「就绪后亮 N 秒自动熄灭」，
+--     按专精保存（见 CG.GetDuration / CG.SetDuration）。
 --   · 是否在冷却通过【C_Spell.GetSpellCooldown(sid).isActive】判定——12.x 新增的 NeverSecret 布尔：
 --     冷却激活(含GCD与真实冷却)为 true，完全就绪(startTime/duration=0)为 false。读取/布尔判断均安全，
 --     绝不触发 12.x 的「secret number 比较」报错（冷却帧 GetCooldownTimes 返回的 start/duration 是 secret，
@@ -18,11 +19,11 @@
 --   · 刷新采用事件驱动（参考 VFlow 的 SpellStateWatcher）：监听 ACTIONBAR_UPDATE_COOLDOWN /
 --     SPELL_UPDATE_COOLDOWN / SPELL_UPDATE_CHARGES 等，用 dispatchFrame 把同帧多次事件合并为一次
 --     评估，去掉原 0.2s 轮询 ticker，更省 CPU、更跟手。
---   · 单一配置开关「是否启用冷却高亮提醒」，存于 CDMEnhancedDB.cooldownGlow.enabled，
---     因 SavedVariables 是账号级（战网账号共享），故天然「战网生效」。
+--   · 单一配置开关「是否启用冷却高亮提醒」，存于 ActionbarEnhancedDB.cooldownGlow.enabled，
+--     存档为角色级（## SavedVariablesPerCharacter），故每个角色独立保存、互不干扰。
 --   · 动作条切换（翻页/姿态/载具/额外动作条）通过事件重评估，发光跟随按钮当前指向的技能。
 
-local BAR = CDMEnhanced
+local BAR = ActionbarEnhanced
 if not BAR then return end
 
 local CG = {}
@@ -34,31 +35,31 @@ CG._LCG = LCG
 
 
 -- =========================================================
--- 配置开关（存盘于 CDMEnhancedDB.cooldownGlow.enabled，默认开启）
+-- 配置开关（存盘于 ActionbarEnhancedDB.cooldownGlow.enabled，默认开启）
 -- 账号级 SavedVariables → 战网账号共享生效。
 -- =========================================================
 function CG.EnsureDB()
-    CDMEnhancedDB = CDMEnhancedDB or {}
-    CDMEnhancedDB.cooldownGlow = CDMEnhancedDB.cooldownGlow or {}
-    if CDMEnhancedDB.cooldownGlow.enabled == nil then
-        CDMEnhancedDB.cooldownGlow.enabled = true
+    ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+    ActionbarEnhancedDB.cooldownGlow = ActionbarEnhancedDB.cooldownGlow or {}
+    if ActionbarEnhancedDB.cooldownGlow.enabled == nil then
+        ActionbarEnhancedDB.cooldownGlow.enabled = true
     end
 end
 
 function CG.IsEnabled()
-    return CDMEnhancedDB and CDMEnhancedDB.cooldownGlow
-        and CDMEnhancedDB.cooldownGlow.enabled ~= false
+    return ActionbarEnhancedDB and ActionbarEnhancedDB.cooldownGlow
+        and ActionbarEnhancedDB.cooldownGlow.enabled ~= false
 end
 
 function CG.SetEnabled(v)
     CG.EnsureDB()
-    CDMEnhancedDB.cooldownGlow.enabled = v
+    ActionbarEnhancedDB.cooldownGlow.enabled = v
     if v then
         CG.Start()
-        print("|cff33ccff[CDMEnhanced]|r 冷却高亮提醒已【启用】。")
+        print("|cff33ccff[ActionbarEnhanced]|r 冷却高亮提醒已【启用】。")
     else
         CG.StopAll()
-        print("|cff33ccff[CDMEnhanced]|r 冷却高亮提醒已【关闭】。")
+        print("|cff33ccff[ActionbarEnhanced]|r 冷却高亮提醒已【关闭】。")
     end
 end
 
@@ -127,6 +128,21 @@ end
 -- 与后续冷却事件补齐，不会长时间空白。
 local function GetTrackedSpellIDs()
     return GetTrackedFromViewer()
+end
+-- 暴露给配置面板：取当前 CDM【主冷却】分组实际启用的技能集合
+CG.GetTrackedSpellIDs = GetTrackedSpellIDs
+
+-- CDM【主冷却】当前实际启用技能集合的签名（排序拼接 spellID）。
+-- 用户在 CDM 主冷却分组里【增删法术】会改变该集合，但这类改动不会触发冷却事件，
+-- 故用于检测变化：集合变化 → 重评估（让新增/移除的技能发光状态立即同步）+ 刷新配置列表。
+function CG.GetTrackedSignature()
+    local tracked = GetTrackedFromViewer()
+    local ids = {}
+    for sid in pairs(tracked) do
+        ids[#ids + 1] = sid
+    end
+    table.sort(ids)
+    return table.concat(ids, ",")
 end
 
 -- 某 spellID 的冷却信息（start/duration/enabled），兼容两种返回形态：
@@ -208,6 +224,15 @@ end
 
 -- 当前正在发光的按钮（反向索引便于停止）
 CG._glowing = CG._glowing or {}     -- [button] = spellID
+CG._expiry = CG._expiry or {}       -- [sid] = 到期时间戳（限时高亮用）；nil = 常亮
+CG._wasCd = CG._wasCd or {}         -- [sid] = 上一次评估是否处于冷却（上升沿检测用）
+CG._timers = CG._timers or {}       -- [sid] = 兜底 C_Timer 句柄（到点强制重评估熄灭）
+
+-- 前向声明：ScheduleEvaluate 在文件后部（事件驱动刷新段）用 local 定义，但本文件
+-- SetExpiry 等逻辑在它之前就需要引用。Lua 中「声明点之前」的同名引用会被编译为【全局】
+-- （此处全局不存在 → nil 报错）；故先在此声明 local，后部定义时直接赋值给这个 local，
+-- 使 SetExpiry / ticker 里的引用都正确指向局部函数。
+local ScheduleEvaluate
 
 local function ProcGlowStart(btn)
     if not LCG then return end
@@ -257,18 +282,89 @@ local function IsOnCooldown(btn, sid)
     return false
 end
 
+-- 当前专精 ID（无专精返回 0）
+local function GetCurrentSpecID()
+    local idx = GetSpecialization()
+    if idx and idx > 0 then
+        return GetSpecializationInfo(idx) or 0
+    end
+    return 0
+end
+
+-- 设置某技能的限时到期时间；dur<=0 表示常亮（无到期）。
+-- 同时安排一个「到点兜底」timer：限时到点时即便没有冷却事件触发，也强制重评估熄灭。
+local function SetExpiry(sid, dur)
+    if dur and dur > 0 then
+        CG._expiry[sid] = GetTime() + dur
+        if CG._timers[sid] then
+            pcall(CG._timers[sid].Cancel, CG._timers[sid])
+            CG._timers[sid] = nil
+        end
+        CG._timers[sid] = C_Timer.After(dur, function()
+            CG._timers[sid] = nil
+            ScheduleEvaluate()
+        end)
+    else
+        CG._expiry[sid] = nil
+        -- 改回常亮时，取消之前为该技能注册的兜底 timer，避免它到点仍触发重评估
+        if CG._timers[sid] then
+            pcall(CG._timers[sid].Cancel, CG._timers[sid])
+            CG._timers[sid] = nil
+        end
+    end
+end
+
+-- 对外：读取/写入某技能的高亮时长（按当前专精保存）。
+--   N = 0 / 缺省 = 常亮；1~5 = 就绪后亮 N 秒自动熄灭。
+function CG.GetDuration(sid)
+    if not (ActionbarEnhancedDB and ActionbarEnhancedDB.cooldownGlow) then return 0 end
+    local cg = ActionbarEnhancedDB.cooldownGlow
+    local specID = GetCurrentSpecID()
+    local durs = cg.specs and cg.specs[specID] and cg.specs[specID].durations
+    return (durs and durs[sid]) or 0
+end
+
+function CG.GetDurations(specID)
+    CG.EnsureDB()
+    local cg = ActionbarEnhancedDB.cooldownGlow
+    cg.specs = cg.specs or {}
+    local spec = cg.specs[specID] or {}
+    cg.specs[specID] = spec
+    spec.durations = spec.durations or {}
+    return spec.durations
+end
+
+function CG.SetDuration(sid, n)
+    CG.EnsureDB()
+    local durs = CG.GetDurations(GetCurrentSpecID())
+    if not n or n == 0 then
+        durs[sid] = nil
+    else
+        durs[sid] = n
+    end
+    -- 配置变更即时生效：直接让该技能进入新的时长状态（常亮→限时立即开始计时；
+    -- 限时→常亮立即取消计时并恢复常亮），不依赖 Evaluate 的 _wasCd/_expiry 判断，
+    -- 也不依赖「先做动作」才触发。随后强制一次重评估。
+    SetExpiry(sid, n or 0)
+    ScheduleEvaluate()
+end
+
 -- 重评估：遍历动作条按钮 → 取按钮自身 spellID → CDM【主冷却】白名单过滤
---   → 就绪即常亮：在「主冷却」分组里、且当前就绪（冷却帧隐藏）的技能按钮发光；
---     进入真实冷却（非纯 GCD）即熄灭；施放其他技能触发的纯 GCD 不影响高亮。无论战斗内外都高亮。
+--   → 就绪发光：在「主冷却」分组里、且当前就绪（冷却帧隐藏）的技能按钮发光；
+--     进入真实冷却（非纯 GCD，即「技能打出去了」）立即熄灭；施放其他技能触发的纯 GCD 不影响。
+--   → 高亮时长：常亮（dur=0）一直亮到施放；限时（dur=N）就绪瞬间亮、N 秒后自动熄灭（即使仍就绪）。
 -- 用「按钮自身 spellID」做匹配，避免 CDM spellID 与动作条 spellID 不一致导致的匹配失败。
 function CG.Evaluate()
     if not CG.IsEnabled() then return end
 
-    -- 1) CDM【主冷却】技能白名单（仅用于过滤，不用于反查按钮）
-    local tracked = GetTrackedSpellIDs()
-    local nTracked = 0; for _ in pairs(tracked) do nTracked = nTracked + 1 end
+    local now = GetTime()
 
-    -- 2) 遍历所有动作条按钮：就绪且被主冷却追踪 → 发光；冷却中/未追踪 → 不发光
+    -- 1) CDM【主冷却】白名单 + 当前专精的时长表（仅用于过滤/查时长，不反查按钮）
+    local tracked = GetTrackedSpellIDs()
+    local cg = ActionbarEnhancedDB.cooldownGlow
+    local durs = (cg.specs and cg.specs[GetCurrentSpecID()] and cg.specs[GetCurrentSpecID()].durations) or {}
+
+    -- 2) 遍历所有动作条按钮
     local shouldGlow = {}
     for _, prefix in ipairs(ACTION_BAR_PREFIXES) do
         for i = 1, 12 do
@@ -277,11 +373,37 @@ function CG.Evaluate()
                 local sid = GetButtonSpellID(btn)
                 if sid and sid > 0 and tracked[sid] then
                     local onCd = IsOnCooldown(btn, sid)
-                    if not onCd then
-                        shouldGlow[btn] = true
-                        if not CG._glowing[btn] then
-                            ProcGlowStart(btn)
-                            CG._glowing[btn] = sid
+                    if onCd then
+                        -- 进入/处于冷却（技能打出去）：立即熄灭，清到期与待触发 timer，记录冷却态
+                        CG._expiry[sid] = nil
+                        if CG._timers[sid] then
+                            pcall(CG._timers[sid].Cancel, CG._timers[sid])
+                            CG._timers[sid] = nil
+                        end
+                        CG._wasCd[sid] = true
+                    else
+                        -- 就绪：按「时长配置」维护到期时间
+                        --   · 上升沿（刚转好）/ 首见即就绪 → 设到期（开始计时）
+                        --   · 当前无到期（运行时由常亮改为限时）→ 立即开始计时
+                        --   · 限时已设（steady 状态 / 已到点）→ 不重置，沿用
+                        local dur = durs[sid] or 0
+                        if dur > 0 then
+                            if CG._wasCd[sid] or CG._wasCd[sid] == nil or not CG._expiry[sid] then
+                                SetExpiry(sid, dur)
+                            end
+                        else
+                            CG._expiry[sid] = nil
+                        end
+                        CG._wasCd[sid] = false
+                        local exp = CG._expiry[sid]
+                        if exp and now > exp then
+                            shouldGlow[btn] = false        -- 限时已到：不再亮（即使仍就绪）
+                        else
+                            shouldGlow[btn] = true
+                            if not CG._glowing[btn] then
+                                ProcGlowStart(btn)
+                                CG._glowing[btn] = sid
+                            end
                         end
                     end
                 end
@@ -289,7 +411,7 @@ function CG.Evaluate()
         end
     end
 
-    -- 3) 停止发光：按钮不再应发光（指向改变 / 不再被主冷却追踪 / 进入冷却）即熄灭
+    -- 3) 停止发光：按钮不再应发光（指向改变 / 不再被主冷却追踪 / 进入冷却 / 限时到点）即熄灭
     for btn in pairs(CG._glowing) do
         if not shouldGlow[btn] then
             StopGlow(btn)
@@ -305,6 +427,13 @@ function CG.StopAll()
         LCG.ProcGlow_Stop(btn, "BAR")
     end
     CG._glowing = {}
+    -- 清理限时状态：取消待触发 timer，清空到期与冷却态缓存
+    for sid, t in pairs(CG._timers) do
+        pcall(t.Cancel, t)
+        CG._timers[sid] = nil
+    end
+    for sid in pairs(CG._expiry) do CG._expiry[sid] = nil end
+    for sid in pairs(CG._wasCd) do CG._wasCd[sid] = nil end
 end
 
 -- 事件驱动刷新（参考 VFlow 的 SpellStateWatcher）：
@@ -319,7 +448,7 @@ dispatchFrame:SetScript("OnUpdate", function(self)
     if CG.IsEnabled() then CG.Evaluate() end
 end)
 
-local function ScheduleEvaluate()
+ScheduleEvaluate = function()
     if dirty then return end
     dirty = true
     dispatchFrame:Show()
@@ -328,7 +457,7 @@ end
 function CG.Start()
     if not LCG then
         -- 不再静默失败：用户能在聊天框直接看到这条，避免「没报错也没高亮」的困惑
-        print("|cff33ccff[CDMEnhanced]|r 错误：LibCustomGlow 未加载，冷却高亮不可用（检查 Libs/LibCustomGlow-1.0 是否正确加载）")
+        print("|cff33ccff[ActionbarEnhanced]|r 错误：LibCustomGlow 未加载，冷却高亮不可用（检查 Libs/LibCustomGlow-1.0 是否正确加载）")
         return
     end
     ScheduleEvaluate()
@@ -382,5 +511,40 @@ end)
 function CG.RefreshAll()
     CG.Evaluate()
 end
+
+-- 检测用户在 CDM【主冷却】分组里增删法术：这类改动不会改变按钮冷却状态，
+-- 因此冷却事件不会被触发、事件驱动的 Evaluate 不会自跑，导致新增技能不发光、
+-- 移除的技能继续亮。用一个低频 ticker 比对 tracked 集合签名，变化即重评估，
+-- 让动作条实际发光状态与 CDM 主冷却成员保持同步。
+local lastTrackedSig = ""
+C_Timer.NewTicker(0.5, function()
+    if not CG.IsEnabled() then
+        -- 开关关闭时不发光；同步签名避免下次开启瞬间误触发
+        lastTrackedSig = CG.GetTrackedSignature()
+        return
+    end
+    local need = false
+    -- 1) CDM 主冷却成员变化 → 重评估（新增/移除技能）
+    local sig = CG.GetTrackedSignature()
+    if sig ~= lastTrackedSig then
+        lastTrackedSig = sig
+        need = true
+    end
+    -- 2) 限时到期双保险：玩家「不做任何动作」时不会触发冷却事件，仅靠 C_Timer.After
+    --    兜底 timer 唤醒重评估；若它偶发未触发，这里每隔 0.5s 检测到期并强制熄灭，
+    --    确保「就绪后亮 N 秒」必然到点熄灭（最多延迟 0.5s），不必等玩家使用技能。
+    if not need then
+        local now = GetTime()
+        for _, exp in pairs(CG._expiry) do
+            if exp and now > exp then
+                need = true
+                break
+            end
+        end
+    end
+    if need then
+        ScheduleEvaluate()
+    end
+end)
 
 

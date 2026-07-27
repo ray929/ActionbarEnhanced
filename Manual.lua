@@ -1,4 +1,4 @@
--- CDMEnhanced/Manual.lua
+-- ActionbarEnhanced/Manual.lua
 -- 手动绑定系统（全栈）：原 Core.lua（数据/绑定/事件）+ Overlay.lua（渲染）合并而来。
 -- 两者仅通过 BAR.* 表通信，合并后局部函数复用同一 upvalue，无任何接口变更（外部调用方无感）。
 -- 文件内分两段：第一段=数据扫描/绑定存档/专精配置/事件驱动；第二段=覆盖层渲染。
@@ -16,8 +16,8 @@
 --   （配置集 GetCooldownViewerCategorySet 会返回分类下全部条目，含未启用的——已弃用。）
 --   spellID 经 GetCooldownViewerCooldownInfo 解析；名称/图标取自 C_Spell.GetSpellInfo（非 unit auras）。
 
-CDMEnhanced = CDMEnhanced or {}
-local BAR = CDMEnhanced
+ActionbarEnhanced = ActionbarEnhanced or {}
+local BAR = ActionbarEnhanced
 
 -- 运行时：从 CDM 帧读到的玩家增益（每次重新扫描重建）
 -- spellID -> { spellID, name, icon }
@@ -339,7 +339,7 @@ end
 
 -- =========================================================
 -- 按「职业专精」存储配置：相同专精读同一份，切换专精即切换配置。
--- 持久化结构：CDMEnhancedDB.specs[specID] = { bindings }（bindings[sid] = { bindSpell, showTime, showStack, timePos, stackPos }）
+-- 持久化结构：ActionbarEnhancedDB.specs[specID] = { bindings }（bindings[sid] = { bindSpell, showTime, showStack, timePos, stackPos }）
 --   · specID 取自 GetSpecializationInfo(GetSpecialization())，跨职业唯一；拿不到时用 0（通用/默认槽）。
 --   · BAR.db 始终指向「当前专精」的子表；绑定与显示开关都落在此子表，无需其它模块改动。
 --   · 外观（时间/层数颜色、字号）为硬代码常量，不分专精、不可配置（见 Settings.lua）。
@@ -365,24 +365,24 @@ end
 -- 初始化 specs 表：首次运行时建结构；兼容旧扁平存档，迁移到通用槽 specs[0]。
 -- 外观（颜色/字号）现为硬代码常量，不再存盘（旧顶层的 timeColor/stackColor/fontSize 字段清理掉）。
 function BAR.InitSpecStorage()
-    CDMEnhancedDB = CDMEnhancedDB or {}
-    if not CDMEnhancedDB.specs then
+    ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+    if not ActionbarEnhancedDB.specs then
         -- 旧结构（顶层 bindings）-> 迁移为通用槽，作为新专精的起步模板
-        local legacy = { bindings = CDMEnhancedDB.bindings or {} }
-        CDMEnhancedDB.bindings  = nil
-        CDMEnhancedDB.timeColor  = nil
-        CDMEnhancedDB.stackColor = nil
-        CDMEnhancedDB.fontSize   = nil
-        CDMEnhancedDB.specs = { [0] = legacy }
+        local legacy = { bindings = ActionbarEnhancedDB.bindings or {} }
+        ActionbarEnhancedDB.bindings  = nil
+        ActionbarEnhancedDB.timeColor  = nil
+        ActionbarEnhancedDB.stackColor = nil
+        ActionbarEnhancedDB.fontSize   = nil
+        ActionbarEnhancedDB.specs = { [0] = legacy }
     end
 end
 
 -- 切换到「当前专精」配置槽：BAR.db 指向 specs[specID] 子表。
 -- 新专精首次使用从通用槽(0)/默认模板复制起步，各专精数据互不共享。
 function BAR.SelectSpec(specID)
-    if not CDMEnhancedDB or not CDMEnhancedDB.specs then return end
+    if not ActionbarEnhancedDB or not ActionbarEnhancedDB.specs then return end
     specID = specID or GetCurrentSpecID()
-    local specs = CDMEnhancedDB.specs
+    local specs = ActionbarEnhancedDB.specs
     if not specs[specID] then
         local base = specs[0] or DefaultSpecConfig()
         specs[specID] = CopyTable and CopyTable(base) or DefaultSpecConfig()

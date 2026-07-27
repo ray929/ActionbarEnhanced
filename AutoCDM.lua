@@ -1,4 +1,4 @@
--- CDMEnhanced/AutoCDM.lua
+-- ActionbarEnhanced/AutoCDM.lua
 -- 自动发现模块：完整移植 CDMButtonAuras 的【自动发现】逻辑（事件触发 / 更新时机 / 匹配方式
 -- 与 CDMButtonAuras 完全一致）。渲染层同样对齐 CDM：
 --   · 覆盖层 = 动作按钮的子帧（随按钮自动定位，零延迟，无 GetRect 重定位）；
@@ -10,7 +10,7 @@
 -- ⚠️ 与 CDMButtonAuras 同框运行时：本模块的 hook 标记用 __BARAutoCDMHooked（不与其
 --   __CDMBAHooked 冲突），否则会被对方抢先标记导致本模块永不 hook → 永远不更新。
 
-local BAR = CDMEnhanced
+local BAR = ActionbarEnhanced
 if not BAR then return end
 
 local AutoCDM = {}
@@ -286,30 +286,30 @@ local function Initialize()
 end
 
 -- =========================================================
--- 启用开关（存盘于 CDMEnhancedDB.autoCDM.enabled，默认开启）
+-- 启用开关（存盘于 ActionbarEnhancedDB.autoCDM.enabled，默认开启）
 -- =========================================================
 function AutoCDM.EnsureDB()
-    CDMEnhancedDB = CDMEnhancedDB or {}
-    CDMEnhancedDB.autoCDM = CDMEnhancedDB.autoCDM or {}
-    if CDMEnhancedDB.autoCDM.enabled == nil then
-        CDMEnhancedDB.autoCDM.enabled = true
+    ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+    ActionbarEnhancedDB.autoCDM = ActionbarEnhancedDB.autoCDM or {}
+    if ActionbarEnhancedDB.autoCDM.enabled == nil then
+        ActionbarEnhancedDB.autoCDM.enabled = true
     end
 end
 
 function AutoCDM.IsEnabled()
-    return CDMEnhancedDB and CDMEnhancedDB.autoCDM
-        and CDMEnhancedDB.autoCDM.enabled ~= false
+    return ActionbarEnhancedDB and ActionbarEnhancedDB.autoCDM
+        and ActionbarEnhancedDB.autoCDM.enabled ~= false
 end
 
 function AutoCDM.SetEnabled(v)
     AutoCDM.EnsureDB()
-    CDMEnhancedDB.autoCDM.enabled = v
+    ActionbarEnhancedDB.autoCDM.enabled = v
     if v then
         RefreshAllOverlays()
-        print("|cff33ccff[CDMEnhanced]|r 光环自动发现已【启用】。")
+        print("|cff33ccff[ActionbarEnhanced]|r 光环自动发现已【启用】。")
     else
         for _, ov in pairs(overlays) do ov:Hide() end
-        print("|cff33ccff[CDMEnhanced]|r 光环自动发现已【关闭】。")
+        print("|cff33ccff[ActionbarEnhanced]|r 光环自动发现已【关闭】。")
     end
 end
 
