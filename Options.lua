@@ -9,7 +9,7 @@
 local BAR = ActionbarEnhanced
 if not BAR then return end
 
-local ADDON_FOLDER = "Actionbar Enhanced"
+local ADDON_FOLDER = "ActionbarEnhanced"
 local addonName = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "Title") or "Actionbar Enhanced"
 
 local AceConfig = LibStub("AceConfig-3.0")

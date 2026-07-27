@@ -6,13 +6,6 @@
 -- ⚠️ 颜色用 RGB 0~1 浮点：{ R/255, G/255, B/255 }。
 --    例如 F0FF00 黄 = { 0xF0/255, 0xFF/255, 0x00/255 }；纯白 = { 1, 1, 1 }。
 
--- 一次性迁移：旧存档 CDMEnhancedDB → 新存档 ActionbarEnhancedDB。
--- 确认迁移无误后，可从本插件 TOC 的 ## SavedVariablesPerCharacter 移除 CDMEnhancedDB 声明。
-if not next(ActionbarEnhancedDB or {}) then
-    ActionbarEnhancedDB = CDMEnhancedDB or {}
-end
-CDMEnhancedDB = nil
-
 -- 确保全局命名空间存在（Core.lua 也会建，这里最先加载先兜底）
 ActionbarEnhanced = ActionbarEnhanced or {}
 local S = {}

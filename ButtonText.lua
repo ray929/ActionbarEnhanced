@@ -25,9 +25,9 @@ local DEFAULTS = {
 -- 硬编码布局（倍率相对 AutoCDM 覆盖层字号 = 1）：
 --   HotKey  0.7 倍，右下角；Count 0.9 倍，右上角；宏文本 0.6 倍（位置保持原生按钮下方）。
 local LAYOUT = {
-    hotkey = { scale = 0.7, anchor = "BOTTOMRIGHT", x = -1, y = 1 },
+    hotkey = { scale = 0.6, anchor = "BOTTOMRIGHT", x = 4, y = 0 },
     count  = { scale = 0.9, anchor = "TOPRIGHT",  x = -1, y = -1 },
-    macro  = { scale = 0.6 },
+    macro  = { scale = 0.5 },
 }
 
 -- 防御式获取 DB：WoW 的 SavedVariables 在 ADDON_LOADED 之后、PLAYER_LOGIN 之前才整体加载，

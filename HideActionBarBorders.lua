@@ -32,7 +32,7 @@ local function ButtonCount(bar)
 end
 
 -- 动作条图集（移植自原插件）：提供方块覆盖层与各状态区域（含悬停方槽 Mouseover）。
-local replacementTexture = "interface/addons/Actionbar Enhanced/Resources/uiactionbar2x"
+local replacementTexture = "interface/addons/ActionbarEnhanced/Resources/uiactionbar2x"
 
 local replacementAtlas = {
     ["UI-HUD-ActionBar-IconFrame-Slot"] = { 64, 31, 0.701172, 0.951172, 0.102051, 0.162598, false, false, "2x" },

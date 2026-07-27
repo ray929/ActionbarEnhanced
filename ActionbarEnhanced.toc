@@ -3,7 +3,7 @@
 ## Notes: 将 CDM（暴雪冷却/增益查看器）中显示的玩家增益信息（冷却时间/层数）覆盖到原生动作条按钮上。
 ## Author: ray929
 ## Version: 0.1.0
-## SavedVariablesPerCharacter: ActionbarEnhancedDB, CDMEnhancedDB
+## SavedVariablesPerCharacter: ActionbarEnhancedDB
 ## DefaultState: enabled
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
 
