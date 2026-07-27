@@ -13,7 +13,7 @@
 - 按钮文字调整（ButtonText）：调整原生按键 / 层数 / 宏文本字号与描边。
 - 隐藏原生动作条边框（HideActionBarBorders）。
 - **动作条按钮变色（ButtonColor）**：CD 中 → 灰色；资源不足 → 蓝色；超出范围 → 红色（三态独立判定，全局开关默认开启）。
-- 配置 GUI 通过 Addon Compartment 打开（AceConfig 独立窗口，战斗内可安全打开、无 taint）。
+- 配置 GUI 通过 Addon Compartment 打开（AceConfig 独立窗口）。战斗中无法打开配置，会自动延迟到脱离战斗后弹出。
 
 ## Installation / 安装
 
@@ -21,7 +21,11 @@ Copy the `ActionbarEnhanced` folder into `World of Warcraft\_retail_\Interface\A
 
 ## Configuration / 配置
 
-打开设置窗口：点击小地图旁的 **Addon Compartment**（Actionbar Enhanced 条目）。设置面板基于 AceConfig 独立窗口（非暴雪设置系统，战斗内可安全打开、无 taint）。
+打开设置窗口：点击小地图旁的 **Addon Compartment**（Actionbar Enhanced 条目）。设置面板基于 AceConfig 独立窗口（非暴雪设置系统）。
+
+- **战斗中无法打开配置**：若在战斗中点击，会提示「战斗中无法配置」，并在脱离战斗后自动弹出；若战斗时配置界面已打开则会强制关闭，脱离战斗后自动重开。
+- 设置窗口底部有两个按钮：**重载界面**（ReloadUI）与其右侧的 **打开CDM**。
+- 斜杠命令 **`/cdm`**：直接打开暴雪自带的冷却管理器（CooldownViewerSettings）。
 
 > 若「手动配置光环」列表为空，先获得一个增益（食物 / 合剂 / 职业 buff）——它会自动出现。
 

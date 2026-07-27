@@ -415,22 +415,53 @@ BuildCooldownGlowArgs()
 AceConfig:RegisterOptionsTable("ActionbarEnhanced", options)
 -- 注：不调用 AddToBlizOptions，避免回到暴雪新设置系统；仅用 AceConfigDialog 独立窗口。
 
--- 在设置窗口底部偏左（避开右上角关闭按钮）挂一个「重载界面」按钮：点击即 ReloadUI()。
+-- 打开暴雪自带冷却管理器（CDM）。实现参考 CooldownManagerButton 插件。
+local function OpenCooldownManager()
+    if not CooldownViewerSettings then return end
+
+    if CooldownViewerSettings:IsShown() then
+        CooldownViewerSettings:Hide()
+        return
+    end
+
+    if Settings and Settings.Open then
+        Settings.Open()
+    end
+
+    CooldownViewerSettings:Show()
+    CooldownViewerSettings:SetFrameStrata("HIGH")
+    CooldownViewerSettings:Raise()
+end
+
+-- 斜杠命令 /cdm：打开暴雪自带冷却管理器
+SLASH_ACTIONBARENHANCED_CDM1 = "/cdm"
+SlashCmdList["ACTIONBARENHANCED_CDM"] = function()
+    OpenCooldownManager()
+end
+
+-- 在设置窗口底部偏左挂「重载界面」按钮（左）与「打开CDM」按钮（其右）。
 -- 只在首次打开时创建一次，后续复用（AceConfigDialog 复用同一 frame）。
 local reloadBtn = nil
+local cdmBtn = nil
 local function AddReloadButton()
     local open = AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["ActionbarEnhanced"]
     local frame = open and open.frame
     if not frame then return end
     if reloadBtn then return end
-    local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    btn:SetSize(100, 22)
-    btn:SetText("重载界面")
+    reloadBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    reloadBtn:SetSize(100, 22)
+    reloadBtn:SetText("重载界面")
     -- 靠近底部，左对齐离开左侧边缘，留足内边距
-    btn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
-    btn:SetFrameLevel(frame:GetFrameLevel() + 10)
-    btn:SetScript("OnClick", function() ReloadUI() end)
-    reloadBtn = btn
+    reloadBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
+    reloadBtn:SetFrameLevel(frame:GetFrameLevel() + 10)
+    reloadBtn:SetScript("OnClick", function() ReloadUI() end)
+
+    cdmBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    cdmBtn:SetSize(100, 22)
+    cdmBtn:SetText("打开CDM")
+    cdmBtn:SetPoint("LEFT", reloadBtn, "RIGHT", 8, 0)
+    cdmBtn:SetFrameLevel(frame:GetFrameLevel() + 10)
+    cdmBtn:SetScript("OnClick", function() OpenCooldownManager() end)
 end
 
 -- 打开配置窗口（供 Addon Compartment 调用）
