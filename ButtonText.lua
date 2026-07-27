@@ -25,7 +25,7 @@ local DEFAULTS = {
 -- 硬编码布局（倍率相对 AutoCDM 覆盖层字号 = 1）：
 --   HotKey  0.7 倍，右下角；Count 0.9 倍，右上角；宏文本 0.6 倍（位置保持原生按钮下方）。
 local LAYOUT = {
-    hotkey = { scale = 0.6, anchor = "BOTTOMRIGHT", x = 4, y = 0 },
+    hotkey = { scale = 0.7, anchor = "BOTTOMRIGHT", x = 4, y = 0 },
     count  = { scale = 0.9, anchor = "TOPRIGHT",  x = -1, y = -1 },
     macro  = { scale = 0.5 },
 }

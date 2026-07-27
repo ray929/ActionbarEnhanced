@@ -215,31 +215,33 @@ local options = {
                 cooldownGlow = {
                     type = "toggle",
                     name = "技能冷却动作条按钮高亮提醒",
+                    desc = "基于冷却管理器(CDM)",
                     order = 1,
                     width = "full",
                     get = function() return BAR.CooldownGlow and BAR.CooldownGlow.IsEnabled() end,
                     set = function(_, v) if BAR.CooldownGlow then BAR.CooldownGlow.SetEnabled(v) end end,
                 },
+                trinketGlow = {
+                    type = "toggle",
+                    name = "主动饰品动作条高亮提醒",
+                    desc = "饰品就绪时高亮动作条按钮",
+                    order = 2,
+                    width = "full",
+                    get = function() return BAR.TrinketGlow and BAR.TrinketGlow.IsEnabled() end,
+                    set = function(_, v) if BAR.TrinketGlow then BAR.TrinketGlow.SetEnabled(v) end end,
+                },
                 autoCDM = {
                     type = "toggle",
                     name = "光环自动发现",
-                    order = 2,
+                    order = 3,
                     width = "full",
                     get = function() return BAR.AutoCDM and BAR.AutoCDM.IsEnabled() end,
                     set = function(_, v) if BAR.AutoCDM then BAR.AutoCDM.SetEnabled(v) end end,
                 },
-                hideBorders = {
-                    type = "toggle",
-                    name = "隐藏原生动作条边框",
-                    order = 3,
-                    width = "full",
-                    get = function() return BAR.HideBorders and BAR.HideBorders.IsEnabled() end,
-                    set = function(_, v) if BAR.HideBorders then BAR.HideBorders.SetEnabled(v) end end,
-                },
                 buttonText = {
                     type = "toggle",
-                    name = "调整按钮原生文字（按键 / 层数 / 宏文本）",
-                    desc
+                    name = "调整按钮原生文字位置和样式",
+                    desc = "按键 / 层数 / 宏文本",
                     order = 4,
                     width = "full",
                     get = function() return BT and BT.IsEnabled() end,
@@ -247,11 +249,36 @@ local options = {
                 },
                 buttonColor = {
                     type = "toggle",
-                    name = "动作条按钮变色（CD中变灰 / 距离不够变红 / 资源不足变蓝）",
+                    name = "动作条按钮变色",
+                    desc = "CD中变灰 / 距离不够变红 / 资源不足变蓝",
                     order = 5,
                     width = "full",
                     get = function() return BAR.ButtonColor and BAR.ButtonColor.IsEnabled() end,
                     set = function(_, v) if BAR.ButtonColor then BAR.ButtonColor.SetEnabled(v) end end,
+                },
+                disableAutoAdd = {
+                    type = "toggle",
+                    name = "阻止新学习技能自动添加到动作栏",
+                    order = 6,
+                    width = "full",
+                    get = function() return BAR.DisableAutoAdd and BAR.DisableAutoAdd.IsEnabled() end,
+                    set = function(_, v) if BAR.DisableAutoAdd then BAR.DisableAutoAdd.SetEnabled(v) end end,
+                },
+                hideBorders = {
+                    type = "toggle",
+                    name = "隐藏原生动作条边框",
+                    order = 7,
+                    width = "full",
+                    get = function() return BAR.HideBorders and BAR.HideBorders.IsEnabled() end,
+                    set = function(_, v) if BAR.HideBorders then BAR.HideBorders.SetEnabled(v) end end,
+                },
+                removeExtraActionTexture = {
+                    type = "toggle",
+                    name = "移除额外动作条材质",
+                    order = 8,
+                    width = "full",
+                    get = function() return BAR.RemoveExtraActionTexture and BAR.RemoveExtraActionTexture.IsEnabled() end,
+                    set = function(_, v) if BAR.RemoveExtraActionTexture then BAR.RemoveExtraActionTexture.SetEnabled(v) end end,
                 },
             },
         },
@@ -266,6 +293,33 @@ local options = {
             name = "手动配置光环",
             order = 20,
             args = {},
+        },
+        credits = {
+            type = "group",
+            name = "感谢",
+            order = 30,
+            args = {
+                intro = {
+                    type = "description",
+                    name = "致谢：",
+                    order = 1,
+                    fontSize = "medium",
+                },
+                list = {
+                    type = "description",
+                    name = [[|cffffff00CDMButtonAuras|r
+|cffffff00VFlow|r
+|cffffff00AyijeCDM|r
+|cffffff00Matt's Action Bar Fonts & UI QoL|r
+|cffffff00tullaRange|r
+|cffffff00GreyOnCooldown|r
+|cffffff00MiniTrinketGlow|r
+|cffffff00DisableAutoAddSpells|r
+|cffffff00Remove Extra Action Button Texture|r]],
+                    order = 2,
+                    fontSize = "medium",
+                },
+            },
         },
     },
 }
@@ -290,7 +344,7 @@ local function BuildManualArgs()
     if #buffs == 0 then
         args.empty = {
             type = "description",
-            name = "|cff999999（暂无光环：进入战斗或打开 CDM 后稍候会自动出现）|r",
+            name = "|cff999999（暂无监控的光环，请打开 CDM 进行配置）|r",
             order = 1,
         }
     end
@@ -322,7 +376,7 @@ local function BuildCooldownGlowArgs()
     local args = {}
     args.intro = {
         type = "description",
-        name = "设置每个高亮技能【就绪后】的提示时长：常亮 = 一直亮到施放；限时 = 就绪后亮 N 秒自动熄灭（即使仍就绪）。按当前专精独立保存。",
+        name = "设置每个高亮技能提示时长",
         order = 0,
         fontSize = "medium",
     }
@@ -334,7 +388,7 @@ local function BuildCooldownGlowArgs()
         if #list == 0 then
             args.empty = {
                 type = "description",
-                name = "|cff999999（当前专精在 CDM【主冷却】分组中暂无启用的技能，无法配置）|r",
+                name = "|cff999999（暂无监控的技能，请打开 CDM 进行配置）|r",
                 order = 1,
             }
         end
@@ -361,10 +415,65 @@ BuildCooldownGlowArgs()
 AceConfig:RegisterOptionsTable("ActionbarEnhanced", options)
 -- 注：不调用 AddToBlizOptions，避免回到暴雪新设置系统；仅用 AceConfigDialog 独立窗口。
 
--- 打开配置窗口（供 Addon Compartment 调用）
-local function OpenConfig()
-    AceConfigDialog:Open("ActionbarEnhanced")
+-- 在设置窗口底部偏左（避开右上角关闭按钮）挂一个「重载界面」按钮：点击即 ReloadUI()。
+-- 只在首次打开时创建一次，后续复用（AceConfigDialog 复用同一 frame）。
+local reloadBtn = nil
+local function AddReloadButton()
+    local open = AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["ActionbarEnhanced"]
+    local frame = open and open.frame
+    if not frame then return end
+    if reloadBtn then return end
+    local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btn:SetSize(100, 22)
+    btn:SetText("重载界面")
+    -- 靠近底部，左对齐离开左侧边缘，留足内边距
+    btn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
+    btn:SetFrameLevel(frame:GetFrameLevel() + 10)
+    btn:SetScript("OnClick", function() ReloadUI() end)
+    reloadBtn = btn
 end
+
+-- 打开配置窗口（供 Addon Compartment 调用）
+-- ⚠️ 战斗中无法安全配置（受保护帧 / taint）：战斗中请求 → 提示并登记「脱离战斗后自动打开」；
+--    若战斗中配置界面已打开，则强制关闭并同样登记延迟重开。
+local pendingOpen = false
+
+local function IsConfigOpen()
+    return AceConfigDialog.OpenFrames and AceConfigDialog.OpenFrames["ActionbarEnhanced"] ~= nil
+end
+
+local function DoOpen()
+    AceConfigDialog:Open("ActionbarEnhanced")
+    AddReloadButton()
+end
+
+local function OpenConfig()
+    if InCombatLockdown() then
+        print("|cffff6666[ActionbarEnhanced]|r 战斗中无法配置，脱离战斗后将自动打开设置界面。")
+        pendingOpen = true
+        return
+    end
+    pendingOpen = false
+    DoOpen()
+end
+
+-- 战斗状态监听：脱离战斗后兑现「延迟打开」；进入战斗时若界面开着则先关掉。
+local combatFrame = CreateFrame("Frame")
+combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+combatFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        if pendingOpen then
+            pendingOpen = false
+            DoOpen()
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        if IsConfigOpen() then
+            AceConfigDialog:Close("ActionbarEnhanced")
+            pendingOpen = true
+        end
+    end
+end)
 
 -- 将插件快捷方式加入 Addon Compartment
 local icon = C_AddOns.GetAddOnMetadata(ADDON_FOLDER, "IconTexture")
