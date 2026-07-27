@@ -239,11 +239,19 @@ local options = {
                 buttonText = {
                     type = "toggle",
                     name = "调整按钮原生文字（按键 / 层数 / 宏文本）",
-                    desc = "开启后按内置倍率调整原生动作条按钮上的按键绑定、层数、宏文本字号并加厚描边（完全替代 MattActionBarFont）。关闭则恢复原生默认样式。",
+                    desc
                     order = 4,
                     width = "full",
                     get = function() return BT and BT.IsEnabled() end,
                     set = function(_, v) if BT then BT.SetEnabled(v) end end,
+                },
+                buttonColor = {
+                    type = "toggle",
+                    name = "动作条按钮变色（CD中变灰 / 距离不够变红 / 资源不足变蓝）",
+                    order = 5,
+                    width = "full",
+                    get = function() return BAR.ButtonColor and BAR.ButtonColor.IsEnabled() end,
+                    set = function(_, v) if BAR.ButtonColor then BAR.ButtonColor.SetEnabled(v) end end,
                 },
             },
         },

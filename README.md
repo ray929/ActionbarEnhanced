@@ -6,11 +6,14 @@
 
 ## Features / 功能
 
-- Hooks Blizzard's `BuffIconCooldownViewer` / `BuffBarCooldownViewer` (CDM) — no scanning of unit auras, combat-safe.
-- Captures **player** buffs only (filtered by `auraDataUnit` + `auraInstanceID` on the CDM frame).
-- Config GUI (Blizzard Settings panel): lists captured buffs with icon + name + spellID, click a row to select/deselect.
-- Selection persists across sessions (`ActionbarEnhancedDB`).
-- (Planned) Show remaining time (green, top-left) and stacks (purple, bottom-left), font size 16, no icon overlay.
+- 把暴雪 CDM 中显示的玩家自身增益（剩余时间 / 层数）覆盖到原生动作条按钮上（combat-safe，不扫单位光环，挂 UIParent 容器）。
+- 手动绑定：按 spellID 绑定，支持专精级配置（时间 / 层数位置）。
+- 自动发现（AutoCDM）：移植 CDMButtonAuras，自动把 CDM 启用的增益铺到动作条。
+- 冷却高亮提醒（CooldownGlow）：CDM「主冷却」技能就绪后 ProcGlow 高亮，可配常亮 / 限时。
+- 按钮文字调整（ButtonText）：调整原生按键 / 层数 / 宏文本字号与描边。
+- 隐藏原生动作条边框（HideActionBarBorders）。
+- **动作条按钮变色（ButtonColor）**：CD 中 → 灰色；资源不足 → 蓝色；超出范围 → 红色（三态独立判定，全局开关默认开启）。
+- 配置 GUI 通过 Addon Compartment 打开（AceConfig 独立窗口，战斗内可安全打开、无 taint）。
 
 ## Installation / 安装
 
@@ -18,9 +21,9 @@ Copy the `ActionbarEnhanced` folder into `World of Warcraft\_retail_\Interface\A
 
 ## Configuration / 配置
 
-Open the settings panel via the **Addon Compartment** (top-right of the minimap area, click the Actionbar Enhanced entry), or via Esc → Options → AddOns → Actionbar Enhanced.
+打开设置窗口：点击小地图旁的 **Addon Compartment**（Actionbar Enhanced 条目）。设置面板基于 AceConfig 独立窗口（非暴雪设置系统，战斗内可安全打开、无 taint）。
 
-> If the list is empty, gain a buff first (food / flask / class buff) — it will appear automatically.
+> 若「手动配置光环」列表为空，先获得一个增益（食物 / 合剂 / 职业 buff）——它会自动出现。
 
 ## Environment Variables / 环境变量
 

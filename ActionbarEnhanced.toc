@@ -19,6 +19,7 @@ Libs/LibCustomGlow-1.0/LibCustomGlow-1.0.xml
 Manual.lua
 AutoCDM.lua
 CooldownGlow.lua
+ButtonColor.lua
 ButtonText.lua
 Options.lua
 HideActionBarBorders.lua
