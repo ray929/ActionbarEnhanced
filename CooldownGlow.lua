@@ -126,19 +126,40 @@ end
 -- 用户把某技能从 CDM 监控里移除 → 它不在 active item 中 → 不再发光，符合预期。
 -- 冷启动（viewer 尚未建立 item frame）时返回空集，由登录后延迟重评估（C_Timer.After）
 -- 与后续冷却事件补齐，不会长时间空白。
+-- ⚡ 性能：Evaluate 在战斗中随冷却事件频繁触发，若每次都调 GetTrackedFromViewer() 全量扫描
+--   EssentialCooldownViewer 的 active item（每个帧一次 GetCooldownViewerCooldownInfo pcall），
+--   会成为最大 CPU 开销。改用缓存 CG._trackedCache：仅由 0.5s ticker（ComputeTracked）刷新，
+--   Evaluate / 配置面板直接复用缓存，避免每事件重复扫描。
+CG._trackedCache = CG._trackedCache or {}
+
+-- 重新扫描 EssentialCooldownViewer 刷新缓存，并返回当前签名（排序拼接 spellID）。
+local function ComputeTracked()
+    local set = GetTrackedFromViewer()
+    CG._trackedCache = set
+    local ids = {}
+    for sid in pairs(set) do
+        ids[#ids + 1] = sid
+    end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
+-- 取当前 CDM【主冷却】分组实际启用的技能集合（复用缓存；缓存为空时回退一次实时扫描，兼容冷启动）。
 local function GetTrackedSpellIDs()
-    return GetTrackedFromViewer()
+    if not next(CG._trackedCache) then
+        return GetTrackedFromViewer()
+    end
+    return CG._trackedCache
 end
 -- 暴露给配置面板：取当前 CDM【主冷却】分组实际启用的技能集合
 CG.GetTrackedSpellIDs = GetTrackedSpellIDs
 
--- CDM【主冷却】当前实际启用技能集合的签名（排序拼接 spellID）。
+-- CDM【主冷却】当前实际启用技能集合的签名（排序拼接 spellID），由缓存推导。
 -- 用户在 CDM 主冷却分组里【增删法术】会改变该集合，但这类改动不会触发冷却事件，
--- 故用于检测变化：集合变化 → 重评估（让新增/移除的技能发光状态立即同步）+ 刷新配置列表。
+-- 故由 0.5s ticker 比对签名检测变化并重评估（见文件尾部 ticker）。
 function CG.GetTrackedSignature()
-    local tracked = GetTrackedFromViewer()
     local ids = {}
-    for sid in pairs(tracked) do
+    for sid in pairs(CG._trackedCache) do
         ids[#ids + 1] = sid
     end
     table.sort(ids)
@@ -460,6 +481,7 @@ function CG.Start()
         print("|cff33ccff[ActionbarEnhanced]|r 错误：LibCustomGlow 未加载，冷却高亮不可用（检查 Libs/LibCustomGlow-1.0 是否正确加载）")
         return
     end
+    ComputeTracked()        -- 启动时先刷新一次 CDM 主冷却缓存，避免首评为空
     ScheduleEvaluate()
 end
 
@@ -517,15 +539,17 @@ end
 -- 移除的技能继续亮。用一个低频 ticker 比对 tracked 集合签名，变化即重评估，
 -- 让动作条实际发光状态与 CDM 主冷却成员保持同步。
 local lastTrackedSig = ""
+-- 每 0.5s 在此【唯一】重新扫描一次 CDM 主冷却成员（刷新缓存 + 取签名），
+-- Evaluate 不再每次扫描，冷却事件高频时省下大量 GetCooldownViewerCooldownInfo pcall。
 C_Timer.NewTicker(0.5, function()
+    local sig = ComputeTracked()
     if not CG.IsEnabled() then
         -- 开关关闭时不发光；同步签名避免下次开启瞬间误触发
-        lastTrackedSig = CG.GetTrackedSignature()
+        lastTrackedSig = sig
         return
     end
     local need = false
     -- 1) CDM 主冷却成员变化 → 重评估（新增/移除技能）
-    local sig = CG.GetTrackedSignature()
     if sig ~= lastTrackedSig then
         lastTrackedSig = sig
         need = true

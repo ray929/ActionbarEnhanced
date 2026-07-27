@@ -130,13 +130,25 @@ local function GetButtonState(btn)
         end
     end
 
-    -- 2) 资源不足（次优先）：缺蓝/缺资源且不可用 → 蓝色
+    -- 2) 可用性：取一次 usable 状态，分别判定 资源不足 / 不可用（复用，省一次 pcall）
+    local isUsable, notEnoughMana
     if action and C_ActionBar and C_ActionBar.IsUsableAction then
-        local ok, isUsable, notEnoughMana = pcall(C_ActionBar.IsUsableAction, action)
-        if ok and isUsable == false and notEnoughMana == true then return "oom" end
+        local ok, u, m = pcall(C_ActionBar.IsUsableAction, action)
+        if ok then isUsable, notEnoughMana = u, m end
     elseif sid and C_Spell and C_Spell.IsSpellUsable then
-        local ok, isUsable, notEnoughMana = pcall(C_Spell.IsSpellUsable, sid)
-        if ok and isUsable == false and notEnoughMana == true then return "oom" end
+        local ok, u, m = pcall(C_Spell.IsSpellUsable, sid)
+        if ok then isUsable, notEnoughMana = u, m end
+    end
+
+    -- 2a) 资源不足（缺蓝/缺资源）→ 蓝色
+    if isUsable == false and notEnoughMana == true then
+        return "oom"
+    end
+    -- 2b) 不可用（背包中不存在的物品 / 无可用次数 / 其它）→ 灰色（原生灰显行为的还原）
+    --     ⚠️ 关键：Blizzard 本就用 desaturation 把"不可用"按钮灰掉；本插件此前在 "normal"
+    --        态把图标强制 Reset 成满色，会把这种原生灰显覆盖成彩色（用户反馈"不存在的物品也是彩色的"）。
+    if isUsable == false and notEnoughMana == false then
+        return "unusable"
     end
 
     -- 3) 超出范围（最后）：IsActionInRange 明确 false/0 才认作超范围（nil = 无射程，不处理）
@@ -162,6 +174,9 @@ local function ApplyState(btn, state)
     local icon = btn.icon
     if not icon then return end
     if state == "cooldown" then
+        icon:SetDesaturation(1)
+    elseif state == "unusable" then
+        -- 背包中不存在的物品 / 不可用：原生灰显，与原生 ActionButton_UpdateUsable 一致
         icon:SetDesaturation(1)
     elseif state == "oom" then
         icon:SetDesaturation(DESAT_COLOR)

@@ -23,6 +23,7 @@ TrinketGlow.lua
 ButtonColor.lua
 ButtonText.lua
 Options.lua
+MinimapButton.lua
 HideActionBarBorders.lua
 DisableAutoAddSpells.lua
 RemoveExtraActionButtonTexture.lua

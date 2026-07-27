@@ -280,6 +280,25 @@ local options = {
                     get = function() return BAR.RemoveExtraActionTexture and BAR.RemoveExtraActionTexture.IsEnabled() end,
                     set = function(_, v) if BAR.RemoveExtraActionTexture then BAR.RemoveExtraActionTexture.SetEnabled(v) end end,
                 },
+                minimapButton = {
+                    type = "toggle",
+                    name = "显示小地图快捷按钮",
+                    desc = "小地图边缘显示一个按钮：左键打开设置，可拖动/右键锁定位置",
+                    order = 9,
+                    width = "full",
+                    get = function()
+                        if not ActionbarEnhancedDB or not ActionbarEnhancedDB.minimap then
+                            return true
+                        end
+                        return ActionbarEnhancedDB.minimap.enabled ~= false
+                    end,
+                    set = function(_, v)
+                        ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+                        ActionbarEnhancedDB.minimap = ActionbarEnhancedDB.minimap or {}
+                        ActionbarEnhancedDB.minimap.enabled = v
+                        if BAR.MinimapButton then BAR.MinimapButton.SetVisible(v) end
+                    end,
+                },
             },
         },
         cooldownGlowCfg = {
@@ -524,6 +543,9 @@ AddonCompartmentFrame:RegisterAddon({
         MenuUtil.HideTooltip(button)
     end,
 })
+
+-- 暴露给外部入口（小地图按钮等）：左键打开设置，自动处理战斗中延迟打开
+BAR.OpenConfig = OpenConfig
 
 -- 自动刷新：检测「CDM 活动帧集合」或「专精」变化，任一变化即重扫 knownBuffs 并重绘。
 --   ⚠️ 不能用 knownBuffs 自身数量做比较——它只在 Rescan/OnAcquireItemFrame 时更新，

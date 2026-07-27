@@ -144,6 +144,26 @@ local function CheckTrinketUsed(slot)
     return false
 end
 
+-- 缓存「饰品按钮 -> 装备槽位」映射：仅在动作条/装备变化时重建，
+-- 避免每次 ACTIONBAR_UPDATE_COOLDOWN（高频）都全量扫描 8 前缀×12 按钮（含解析宏体），
+-- 这是 Run 在战斗中频繁触发时的最大 CPU 开销。Run 只遍历这个 0~2 个元素的缓存。
+local trinketButtons = {}
+
+local function RebuildTrinketMap()
+    wipe(trinketButtons)
+    for _, prefix in ipairs(PREFIXES) do
+        for i = 1, 12 do
+            local btn = _G[prefix .. i]
+            if btn and btn.action then
+                local slot = GetTrinketSlotForAction(btn.action)
+                if slot then
+                    trinketButtons[btn] = slot
+                end
+            end
+        end
+    end
+end
+
 -- =========================================================
 -- 发光（glow）控制：用 glowing 集合对账，保证无残留
 -- =========================================================
@@ -195,21 +215,14 @@ local function Run()
         return
     end
 
-    -- 1) 计算当前应发光的按钮集合（完整重算，不依赖增量）
+    -- 1) 计算当前应发光的按钮集合：只遍历已缓存的饰品按钮（0~2 个），
+    --    不再每次扫描全部前缀×12 按钮（ACTIONBAR_UPDATE_COOLDOWN 高频触发时大幅省 CPU）。
     local shouldGlow = {}
-    for _, prefix in ipairs(PREFIXES) do
-        for i = 1, 12 do
-            local btn = _G[prefix .. i]
-            if btn and btn.action then
-                local slot = GetTrinketSlotForAction(btn.action)
-                if slot then
-                    local start, duration, usable = GetInventoryItemCooldown("player", slot)
-                    local trinketReady = (usable == 1) and (start == 0) and (duration == 0)
-                    if trinketReady then
-                        shouldGlow[btn] = true
-                    end
-                end
-            end
+    for btn, slot in pairs(trinketButtons) do
+        local start, duration, usable = GetInventoryItemCooldown("player", slot)
+        local trinketReady = (usable == 1) and (start == 0) and (duration == 0)
+        if trinketReady then
+            shouldGlow[btn] = true
         end
     end
 
@@ -232,6 +245,7 @@ function TG.Start()
         print("|cff33ccff[ActionbarEnhanced]|r 错误：LibCustomGlow 未加载，饰品高亮不可用（检查 Libs/LibCustomGlow-1.0 是否正确加载）")
         return
     end
+    RebuildTrinketMap()
     Run()
 end
 
@@ -261,10 +275,12 @@ evFrame:SetScript("OnEvent", function(_, event, ...)
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         local slot = ...
         if slot == TRINKET1 or slot == TRINKET2 then
+            RebuildTrinketMap()
             Run()
         end
     elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" then
-        -- 饰品移动/翻页：Run 會自动对账熄灭旧位置发光，无需额外 StopAll
+        -- 饰品移动/翻页：重建映射并 Run（Run 會自动对账熄灭旧位置发光，无需额外 StopAll）
+        RebuildTrinketMap()
         Run()
     elseif event == "ACTIONBAR_UPDATE_COOLDOWN" then
         -- 检测饰品刚使用（自身 CD 开始）→ 安排 duration+0.1 延时重评（原版逻辑）
@@ -274,6 +290,8 @@ evFrame:SetScript("OnEvent", function(_, event, ...)
         if used2 and C_Timer then C_Timer.After(duration2 + 0.1, Run) end
         Run()
     else
+        -- 其它事件（如 PLAYER_ENTERING_WORLD）：重建映射并 Run
+        RebuildTrinketMap()
         Run()
     end
 end)
