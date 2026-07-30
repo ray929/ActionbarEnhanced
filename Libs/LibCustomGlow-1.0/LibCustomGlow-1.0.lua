@@ -16,8 +16,6 @@ else
     if not lib then return end
 end
 if not LibStub then error(MAJOR_VERSION .. " requires LibStub.") end
-local lib, oldversion = LibStub:NewLibrary(MAJOR_VERSION, MINOR_VERSION)
-if not lib then return end
 local Masque = LibStub("Masque", true)
 
 local isRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE

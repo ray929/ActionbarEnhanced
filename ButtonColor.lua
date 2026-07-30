@@ -16,9 +16,11 @@
 --     ActionButton_UpdateCooldown 与 ActionButton_UpdateRangeIndicator 安全函数，
 --     以及 cooldown:OnCooldownDone 时刷新；同时 hook RegisterFrame 覆盖登录后动态创建的按钮。
 --     ⚠️ 零售版动作按钮【实例】没有 UpdateCooldown 方法，只能钩全局 ActionButton_UpdateCooldown。
---   · CD 判定用 C_ActionBar.GetActionCooldown(action).isActive（布尔，含 GCD）再排除 isOnGCD；
---     GetActionCooldown 返回的 CooldownInfo 有 isActive 字段（实测）。绝不可比较
---     startTime/duration/GetRemainingDuration 等 secret number 数值（tainted 下直接报错）。
+--   · CD 判定：CooldownInfo.isOnGCD 字段「只在响应 SPELL_UPDATE_COOLDOWN 事件时可信」，任意时机
+--     读它会把 GCD 误判成真实冷却导致全灰。故只在 SPELL_UPDATE_COOLDOWN 事件里读取并缓存每个按钮的
+--     真实冷却态（BC._cdCache），其余刷新时机复用缓存，绝不跨时机读 isOnGCD。
+--     效果：有 CD 技能用了立即灰（使用即触发该事件），纯 GCD 波及的技能不灰，且不再全灰。
+--     ⚠️ 也绝不可比较 startTime/duration/GetRemainingDuration 等 secret number 数值（tainted 下报错）。
 --   · 资源判定用 C_ActionBar.IsUsableAction → (isUsable, notEnoughMana)，缺资源且不可用即变蓝。
 --   · 范围判定用 IsActionInRange(action) 明确为 false/0 才认作超范围（无射程技能返回 nil 不处理）。
 --   · 事件驱动刷新（合并同帧多次事件），事件兜底覆盖 CD / 资源 / 范围 / 翻页 / 姿态切换。
@@ -98,18 +100,42 @@ local function GetButtonSpellID(btn)
 end
 
 -- =========================================================
--- 判定动作是否处于“真实冷却”（排除纯 GCD）。用 CooldownInfo 的布尔字段 isActive（含 GCD）
--- 再排除 isOnGCD；绝不比较 startTime/duration/GetRemainingDuration 等 secret number 数值。
+-- 判定动作是否处于“真实冷却”（排除纯 GCD）。
+-- 关键：CooldownInfo.isOnGCD 字段 wiki 明确「只在响应 SPELL_UPDATE_COOLDOWN 事件时可信」，
+-- 任意时机（UNIT_POWER_UPDATE / ACTIONBAR_UPDATE_COOLDOWN / hook UpdateUsable 等）读它不可靠，
+-- 会把 GCD 误判成真实冷却导致全灰。故采用【缓存】策略：
+--   · 只在 SPELL_UPDATE_COOLDOWN 事件（isOnGCD 唯一可信时机）里读取并缓存每个按钮的真实冷却态；
+--   · 其余所有刷新时机复用缓存，绝不跨时机读 isOnGCD。
+-- 效果：用了的有 CD 技能立即灰（使用即触发 SPELL_UPDATE_COOLDOWN），纯 GCD 波及的技能不灰，且不再全灰。
 -- =========================================================
-local function ActionHasRealCooldown(action)
-    if not action then return false end
-    local ok, cd = pcall(C_ActionBar.GetActionCooldown, action)
-    if not ok or not cd then return false end
-    -- cd.isActive 表示“正在冷却”（含 GCD），再用 isOnGCD 排除纯 GCD。
-    -- ⚠️ 不可比较 GetRemainingDuration()/duration 等 secret number 数值（tainted 下报错）；
-    --    也不可仅凭 HasSecretValues() 判定（GCD 残留 secret 会误判全灰）。只用布尔字段。
-    if cd.isActive and not cd.isOnGCD then return true end
+-- 冷却状态缓存：btn -> true/false（是否真实冷却）。weak keys，按钮回收自动清。
+BC._cdCache = setmetatable({}, { __mode = "k" })
+
+-- 计算单按钮是否处于真实冷却（⚠️ 仅在 SPELL_UPDATE_COOLDOWN 等 isOnGCD 可信时机调用）
+local function ComputeRealCooldown(btn)
+    local action = btn.action
+    if action then
+        local ok, cd = pcall(C_ActionBar.GetActionCooldown, action)
+        if ok and cd and cd.isActive == true and not cd.isOnGCD then
+            return true
+        end
+        return false
+    end
+    local sid = GetButtonSpellID(btn)
+    if sid and C_Spell and C_Spell.GetSpellCooldown then
+        local ok, cd = pcall(C_Spell.GetSpellCooldown, sid)
+        if ok and cd and type(cd) == "table" and cd.isActive == true and not cd.isOnGCD then
+            return true
+        end
+    end
     return false
+end
+
+-- 刷新全部按钮的冷却缓存（只在 SPELL_UPDATE_COOLDOWN 事件调用）
+local function RefreshCooldownCache()
+    for btn in pairs(BC._buttons) do
+        BC._cdCache[btn] = ComputeRealCooldown(btn)
+    end
 end
 
 -- =========================================================
@@ -120,14 +146,11 @@ local function GetButtonState(btn)
     local sid = GetButtonSpellID(btn)
     if not action and not sid then return "normal" end
 
-    -- 1) CD 中（最高优先级）：isActive 且非纯 GCD（布尔字段判定，绝不读 secret number 数值）
-    if action and ActionHasRealCooldown(action) then
+    -- 1) CD 中（最高优先级）：读冷却缓存（由 SPELL_UPDATE_COOLDOWN 可信时机维护）。
+    --    用了的有 CD 技能：使用即触发 SPELL_UPDATE_COOLDOWN → 缓存立即置真 → 立即灰；
+    --    纯 GCD 波及的技能：可信读到 isOnGCD=true → 缓存为假 → 不灰。绝不跨时机读 isOnGCD。
+    if BC._cdCache[btn] then
         return "cooldown"
-    elseif sid and C_Spell and C_Spell.GetSpellCooldown then
-        local ok, cd = pcall(C_Spell.GetSpellCooldown, sid)
-        if ok and cd and type(cd) == "table" and cd.isActive and not cd.isOnGCD then
-            return "cooldown"
-        end
     end
 
     -- 2) 可用性：取一次 usable 状态，分别判定 资源不足 / 不可用（复用，省一次 pcall）
@@ -219,7 +242,10 @@ local function RegisterButton(btn)
         hooksecurefunc(btn, "Update", BC.UpdateButton)
     end
     if btn.cooldown then
-        btn.cooldown:HookScript("OnCooldownDone", function() BC.UpdateButton(btn) end)
+        btn.cooldown:HookScript("OnCooldownDone", function()
+            BC._cdCache[btn] = false       -- 冷却结束，直接清缓存
+            BC.UpdateButton(btn)
+        end)
     end
 end
 
@@ -287,6 +313,7 @@ function BC.Start()
         BC._evFrame:RegisterEvent("UNIT_POWER_UPDATE")
     end
     BC._started = true
+    RefreshCooldownCache()  -- 初始化冷却缓存
     -- 立即刷新一次
     BC.RefreshAll()
 end
@@ -316,6 +343,12 @@ evFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then
         BC.EnsureDB()
         if BC.IsEnabled() then BC.Start() end
+        return
+    end
+    if event == "SPELL_UPDATE_COOLDOWN" then
+        -- isOnGCD 唯一可信时机：同步更新冷却缓存，再合并刷新应用
+        RefreshCooldownCache()
+        ScheduleRefresh()
         return
     end
     if event == "UNIT_POWER_UPDATE" then

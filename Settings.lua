@@ -27,6 +27,7 @@ S.TIME_COLOR_SELF         = { 0.20, 1.00, 0.20 }  -- 自身：鲜绿
 S.TIME_COLOR_OTHER_BUFF   = { 1.00, 1.00, 0.00 }  -- 别人的 buff：#FFFF00 纯黄
 S.TIME_COLOR_OTHER_DEBUFF = { 1.00, 0.20, 0.20 }  -- 别人的 debuff：鲜红
 S.STACK_COLOR             = { 0x3F/255, 0xC7/255, 0xEB/255 }  -- 层数：#3FC7EB
+S.MANUAL_GLOW_COLOR       = { 0x16/255, 0xF2/255, 0xFA/255, 1 }  -- 手动绑定「发光」模式按钮高亮色：#16f2fa 青色
 
 -- 取时间颜色：自身=浅绿；别人 debuff=浅紫；别人 buff（及其它）=黄
 -- ⚠️ 必须用 isHarmful 布尔判定 debuff：新客户端 auraData.auraType 是 Enum.AuraType【数字】，

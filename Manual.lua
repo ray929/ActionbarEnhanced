@@ -627,6 +627,25 @@ local S = BAR.Settings
 -- spellID -> { buttonName, button, cd, stackText }
 local overlays = {}
 
+-- =========================================================
+-- 发光（glow）辅助：timePos=="发光" 时给按钮 Proc Glow
+-- 发光靠项目已加载的 LibCustomGlow-1.0（与 CooldownGlow 的 "BAR" / TrinketGlow 的 "TG" 区分用独立 key）
+-- =========================================================
+local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
+local MANUAL_GLOW_KEY = "MANUALGLOW"
+
+local function ManualGlowStart(btn)
+    if not btn or not LCG or btn.__ManualGlow then return end
+    LCG.ProcGlow_Start(btn, { key = MANUAL_GLOW_KEY, startAnim = true, color = S.MANUAL_GLOW_COLOR, scale = 0.8 })
+    btn.__ManualGlow = true
+end
+
+local function ManualGlowStop(btn)
+    if not btn or not LCG or not btn.__ManualGlow then return end
+    LCG.ProcGlow_Stop(btn, MANUAL_GLOW_KEY)
+    btn.__ManualGlow = false
+end
+
 -- 仅接受暴雪原生动作条按钮，排除玩家/插件自定义按钮
 local NATIVE_PATTERNS = {
     "^ActionButton%d+$",
@@ -778,7 +797,7 @@ end
 --            （本客户端中 frame.Applications.Applications:GetText() 返回 secret 字符串，不能用。）
 -- 永久型增益（如风之舞 9 层）GetAuraDuration 返回 nil → 不显时间，但层数照常显。
 -- showTimeOpt / showStackOpt：该绑定的显示开关（false=不显示）；nil 视为显示。
-local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt)
+local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt, spellID, button)
     local showTimeAllowed = (showTimeOpt ~= false)
     local showStackAllowed = (showStackOpt ~= false)
     local unit = frame and frame.auraDataUnit
@@ -786,13 +805,32 @@ local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt)
     -- 取 debuff 判定（仅读非 secret 的 isHarmful 布尔，pcall 兜底）用于 buff/debuff 配色
     -- ⚠️ 不能用 auraType 字符串比对：新客户端 auraType 是 Enum 数字，比对永远失败 → 全误判成 buff。
     local isHarmful
+    local auraActive = false
     if unit and instID then
         local ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, instID)
-        if ok and data then isHarmful = data.isHarmful end
+        if ok and data then
+            isHarmful = data.isHarmful
+            auraActive = true
+        end
+    end
+
+    -- 发光模式判定（timePos=="发光"）：光环激活则发光、隐藏时间；否则熄灭。
+    -- 判定复用 auraData 存在性（比只看 duration 更稳，能覆盖永久光环如风之舞 9 层）。
+    local glowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "发光")
+    if glowMode then
+        cd:Hide()
+        if auraActive then
+            ManualGlowStart(button)
+        else
+            ManualGlowStop(button)
+        end
+    else
+        -- 非发光模式：若之前处于发光（从"发光"切回）则清掉，避免残留
+        ManualGlowStop(button)
     end
 
     local showTime = false
-    if showTimeAllowed and unit and instID then
+    if showTimeAllowed and not glowMode and unit and instID then
         local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, unit, instID)
         if ok and durObj then
             cd:SetCooldownFromDurationObject(durObj, true)
@@ -865,6 +903,7 @@ function BAR.RebuildOverlays()
             if ov.cd then ov.cd:Hide() end
             if ov.stackText then ov.stackText:Hide() end
             if ov.container then ov.container:Hide() end
+            ManualGlowStop(ov.button)
             overlays[sid] = nil
         end
     end
@@ -879,6 +918,7 @@ function BAR.RebuildOverlays()
                     ov.cd:Hide()
                     ov.stackText:Hide()
                     if ov.container then ov.container:Hide() end
+                    ManualGlowStop(ov.button)
                 end
                 overlays[sid] = MakeOverlay(sid, target)
             end
@@ -910,11 +950,12 @@ function BAR.UpdateOverlayForSpell(spellID, frame)
         ov.cd:Hide()
         ov.stackText:Hide()
         if ov.container then ov.container:Hide() end
+        ManualGlowStop(ov.button)
         return
     end
     if ov.container then ov.container:Show() end
     -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
-    UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true)
+    UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true, ov.spellID, ov.button)
 end
 
 -- 一次性重新同步所有覆盖层：登录 / 切换专精 / 动作条变动 / 重新扫描后调用。
@@ -926,11 +967,12 @@ function BAR.RefreshAllOverlays()
             ov.cd:Hide()
             ov.stackText:Hide()
             if ov.container then ov.container:Hide() end
+            ManualGlowStop(ov.button)
         else
             if ov.container then ov.container:Show() end
             local frame = BAR.FindFrameForSpell and BAR.FindFrameForSpell(sid)
             -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
-            UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true)
+            UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true, sid, ov.button)
         end
     end
 end

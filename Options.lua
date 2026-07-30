@@ -31,6 +31,8 @@ local function GetStackPos(spellID)
 end
 
 local POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右" }
+-- 时间位置专用列表：比层数多一个「发光」选项（光环激活时按钮发光、不显示时间）
+local TIME_POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右", ["发光"] = "发光" }
 
 -- 冷却高亮时长枚举：0 = 常亮；1~5 = 就绪后亮 N 秒自动熄灭
 local GLOW_DUR_VALUES = { [0] = "常亮", [1] = "1 秒", [2] = "2 秒", [3] = "3 秒", [4] = "4 秒", [5] = "5 秒" }
@@ -97,7 +99,7 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
         -- 位置下拉
         local pos = AceGUI:Create("Dropdown")
         pos:SetLabel("时间位置")
-        pos:SetList(POS_VALUES)
+        pos:SetList(TIME_POS_VALUES)
         pos:SetValue(GetTimePos(sid))
         pos:SetWidth(100)
         pos:SetCallback("OnValueChanged", function(_, _, v)
@@ -272,7 +274,7 @@ local options = {
                     get = function() return BAR.HideBorders and BAR.HideBorders.IsEnabled() end,
                     set = function(_, v) if BAR.HideBorders then BAR.HideBorders.SetEnabled(v) end end,
                 },
-                removeExtraActionTexture = {
+                        removeExtraActionTexture = {
                     type = "toggle",
                     name = "移除额外动作条材质",
                     order = 8,
@@ -301,10 +303,31 @@ local options = {
                 },
             },
         },
+        clickThrough = {
+            type = "group",
+            name = "技能栏鼠标穿透",
+            order = 9,
+            args = {
+                intro = {
+                    type = "description",
+                    name = "勾选的技能栏将鼠标穿透（点击落到下方），键盘绑定仍可用。勾选即时生效（非战斗状态），如需彻底生效可重载界面。",
+                    order = 0,
+                    fontSize = "medium",
+                },
+                bar1 = { type = "toggle", name = "技能栏 1（主动作条）", order = 1, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(1) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(1, v) end end },
+                bar2 = { type = "toggle", name = "技能栏 2（底部左）", order = 2, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(2) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(2, v) end end },
+                bar3 = { type = "toggle", name = "技能栏 3（底部右）", order = 3, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(3) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(3, v) end end },
+                bar4 = { type = "toggle", name = "技能栏 4（右侧）", order = 4, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(4) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(4, v) end end },
+                bar5 = { type = "toggle", name = "技能栏 5（左侧）", order = 5, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(5) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(5, v) end end },
+                bar6 = { type = "toggle", name = "技能栏 6（多动作条5）", order = 6, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(6) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(6, v) end end },
+                bar7 = { type = "toggle", name = "技能栏 7（多动作条6）", order = 7, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(7) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(7, v) end end },
+                bar8 = { type = "toggle", name = "技能栏 8（多动作条7）", order = 8, width = "full", get = function() return BAR.ButtonClickThrough and BAR.ButtonClickThrough.IsEnabled(8) end, set = function(_, v) if BAR.ButtonClickThrough then BAR.ButtonClickThrough.SetEnabled(8, v) end end },
+            },
+        },
         cooldownGlowCfg = {
             type = "group",
             name = "冷却高亮设置",
-            order = 10,
+            order = 11,
             args = {},
         },
         manual = {

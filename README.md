@@ -7,7 +7,7 @@
 ## Features / 功能
 
 - 把暴雪 CDM 中显示的玩家自身增益（剩余时间 / 层数）覆盖到原生动作条按钮上（combat-safe，不扫单位光环，挂 UIParent 容器）。
-- 手动绑定：按 spellID 绑定，支持专精级配置（时间 / 层数位置）。
+- 手动绑定：按 spellID 绑定，支持专精级配置（时间 / 层数位置；时间位置可选「发光」——光环激活时按钮 ProcGlow 高亮、不显示时间，层数照常）。
 - 自动发现（AutoCDM）：移植 CDMButtonAuras，自动把 CDM 启用的增益铺到动作条。
 - 冷却高亮提醒（CooldownGlow）：CDM「主冷却」技能就绪后 ProcGlow 高亮，可配常亮 / 限时。
 - 按钮文字调整（ButtonText）：调整原生按键 / 层数 / 宏文本字号与描边。

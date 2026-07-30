@@ -27,3 +27,4 @@ MinimapButton.lua
 HideActionBarBorders.lua
 DisableAutoAddSpells.lua
 RemoveExtraActionButtonTexture.lua
+ButtonClickThrough.lua
