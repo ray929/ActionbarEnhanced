@@ -6,6 +6,8 @@
 # AI 助手 / 工作区元数据（记忆、临时脚本等，非插件代码）
 .codebuddy
 .workbuddy
+.reasonix
+reasonix.toml
 .temp
 .test
 

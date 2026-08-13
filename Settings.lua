@@ -32,10 +32,18 @@ S.MANUAL_GLOW_COLOR       = { 0x16/255, 0xF2/255, 0xFA/255, 1 }  -- 手动绑定
 -- 取时间颜色：自身=浅绿；别人 debuff=浅紫；别人 buff（及其它）=黄
 -- ⚠️ 必须用 isHarmful 布尔判定 debuff：新客户端 auraData.auraType 是 Enum.AuraType【数字】，
 --    不是 "Magic" 等字符串，旧写法用字符串比对永远失败 → 别人的 debuff 全误判成 buff（黄）。
+-- ⚠️ 12.1+：aura 数据在 secret 时（战斗/副本/M+/PvP）字段（含 isHarmful）是 secret 值，
+--    绝不能直接做布尔测试（会 Lua error "attempt to perform boolean test ... secret"），
+--    先经 issecretvalue 净化：secret 时无法判定 buff/debuff，按 buff（黄）处理。
 function S.GetTimeColor(unit, isHarmful)
     if unit == "player" then
         return S.TIME_COLOR_SELF
-    elseif isHarmful then
+    end
+    local ok, sec = pcall(function() return issecretvalue and issecretvalue(isHarmful) end)
+    if ok and sec then
+        isHarmful = nil
+    end
+    if isHarmful then
         return S.TIME_COLOR_OTHER_DEBUFF
     else
         return S.TIME_COLOR_OTHER_BUFF

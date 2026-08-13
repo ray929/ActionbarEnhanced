@@ -1,4 +1,4 @@
-## Interface: 120007
+## Interface: 120100
 ## Title: Actionbar Enhanced
 ## Notes: 将 CDM（暴雪冷却/增益查看器）中显示的玩家增益信息（冷却时间/层数）覆盖到原生动作条按钮上。
 ## Author: ray929

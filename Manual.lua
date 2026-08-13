@@ -35,11 +35,45 @@ BAR.frameBySpell = BAR.frameBySpell or {}
 -- 配置存盘（指向 SavedVariables）
 BAR.db = nil
 
--- 安全判断 secret value（12.0+ 受限内容会返回 secret，不可比较/存盘）
+-- 安全判断 secret value（12.0+ 受限内容会返回 secret，不可比较/存盘）。
+-- 12.1+ 的 secret 值类型可能是 number/boolean/string 等，不能靠 type() 预判
+-- （secret 布尔 type() 返回 "boolean"，旧写法 type ~= "number" 会漏判），
+-- 统一用 issecretvalue 识别所有类型的 secret 值，pcall 兜底 nil 等输入。
 local function IsSecret(v)
-    if type(v) ~= "number" then return false end
     local ok, res = pcall(function() return issecretvalue and issecretvalue(v) end)
     return ok and res
+end
+
+-- 安全判断 CDM item frame 是否显示（= 光环是否激活）。
+-- ⚠️ 12.1 蓝贴提到过新 AuraButton 的 IsShown 会返回 secret；CDM item frame 是普通
+--   Frame 不受此限制，但为绝对稳妥仍 pcall 包裹：异常/secret 时按"未激活"处理。
+local function IsItemShown(item)
+    if not item then return false end
+    local ok, shown = pcall(function() return item:IsShown() end)
+    if not ok or shown == nil then return false end
+    if IsSecret(shown) then return false end
+    return not not shown
+end
+
+-- 屏幕外容器：把 CDM item frame（图标+背景框整体）移到这里，实现"看不见"，
+-- 无需 Hide 任何 region。item 的 Show/Hide 状态不因位置改变 → IsItemShown 激活判断不受影响。
+local offscreenFrame = CreateFrame("Frame", nil, UIParent)
+offscreenFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -1000, 1000)
+offscreenFrame:SetSize(40, 40)
+offscreenFrame:Show()
+
+-- 把 CDM item frame 移到屏幕外（记录原 parent，光环消失时 UpdateAuraDisplay 会还原）。
+-- 图标、IconOverlay 背景框、MaskTexture 等随 item 一起移走，无需逐个 Hide。
+local function MoveItemOffscreen(item)
+    if not item then return end
+    pcall(function()
+        if not item.__BAROrigParent then
+            item.__BAROrigParent = item:GetParent()
+        end
+        item:SetParent(offscreenFrame)
+        item:ClearAllPoints()
+        item:SetPoint("TOPLEFT", offscreenFrame, "TOPLEFT", 0, 0)
+    end)
 end
 
 -- 从 CDM 返回的 info 解析出可用的 spellID
@@ -51,6 +85,28 @@ local function ResolveSpellID(info)
     if info.overrideSpellID and info.overrideSpellID > 0 and not IsSecret(info.overrideSpellID) then return info.overrideSpellID end
     if info.spellID and info.spellID > 0 and not IsSecret(info.spellID) then return info.spellID end
     return nil
+end
+
+-- 收集 info 里的全部候选 spellID（去重）。
+-- 12.1+：天赋改名场景下光环/技能名不一致（如光环"烈焰震击" vs 按钮"流电炽焰"），
+-- 只记一个 ID 会导致 FindFrameForSpell / 按钮匹配失败；全部候选都要留。
+local function CollectItemSpellIDs(info)
+    local seen, result = {}, {}
+    local function add(id)
+        if id and id > 0 and not IsSecret(id) and not seen[id] then
+            seen[id] = true
+            result[#result + 1] = id
+        end
+    end
+    if not info then return result end
+    add(info.spellID)
+    add(info.overrideSpellID)
+    add(info.overrideTooltipSpellID)
+    add(info.linkedSpellID)
+    if info.linkedSpellIDs then
+        for _, id in ipairs(info.linkedSpellIDs) do add(id) end
+    end
+    return result
 end
 
 -- 把某个 spellID 写入 knownBuffs（不重复覆盖名称/图标）
@@ -70,9 +126,12 @@ local function RegisterBuff(spellID)
 end
 
 -- =========================================================
--- 数据源：扫描 CDM 增益查看器的当前帧（= 已启用的追踪增益）
+-- 数据源：扫描 CDM 全部查看器的当前帧（= 已启用的追踪增益/冷却）
+-- 12.1+：Essential/Utility 冷却 item 的 cooldownStartTime/cooldownDuration 是暴雪
+-- 算好的普通字段（战斗中可用）；BuffIcon/BuffBar 光环 item 只有 auraDataCached（secret 风险）。
+-- 四个查看器都要扫，否则配置在 Essential/Utility 的追踪不显示。
 -- =========================================================
-local VIEWER_NAMES = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+local VIEWER_NAMES = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
 
 local function GetViewerFrames(viewer)
     if not viewer then return nil end
@@ -133,9 +192,11 @@ local function ScanViewerFrames()
                     if spellID and not IsSecret(spellID) then
                         RegisterBuff(spellID)
                         BAR.cdIDBySpell[spellID] = cdID
-                        -- 把 spellID 记到 frame 上（我们自己写的非 secret 字段），
+                        -- 把 spellID 候选记到 frame 上（我们自己写的非 secret 字段），
                         -- 供 FindFrameForSpell 实时匹配——绝不读 secret 的 frame.auraSpellID。
+                        -- 12.1+：天赋改名场景（光环"烈焰震击" vs 按钮"流电炽焰"）需要全部候选。
                         frame.__BARSpellID = spellID
+                        frame.__BARSpellIDs = CollectItemSpellIDs(info)
                         -- 钩住该 CDM item 的 RefreshData，战斗中暴雪刷新时驱动覆盖层更新
                         HookViewerItem(frame)
                     end
@@ -176,8 +237,9 @@ end
 
 -- 动态查找当前正在显示该 spellID 的 CDM item frame。
 -- 不用 BAR.frameBySpell 的静态缓存：战斗中 CDM 可能把同一个 frame 对象复用去显示别的 buff，
--- 静态引用会失效；此处每次实时遍历活动帧，用我们写在 frame 上的非 secret 字段 __BARSpellID 匹配，
+-- 静态引用会失效；此处每次实时遍历活动帧，用我们写在 frame 上的非 secret 字段匹配，
 -- 绝不读 secret 的 frame.auraSpellID（tainted 代码一比较就崩）。
+-- 12.1+：匹配全部候选 __BARSpellIDs（天赋改名场景，如光环"烈焰震击" vs 技能"流电炽焰"）。
 function BAR.FindFrameForSpell(spellID)
     for _, viewerName in ipairs(VIEWER_NAMES) do
         local viewer = _G[viewerName]
@@ -186,6 +248,13 @@ function BAR.FindFrameForSpell(spellID)
             for _, frame in ipairs(frames) do
                 if frame.__BARSpellID and frame.__BARSpellID == spellID then
                     return frame
+                end
+                if frame.__BARSpellIDs then
+                    for _, id in ipairs(frame.__BARSpellIDs) do
+                        if id == spellID then
+                            return frame
+                        end
+                    end
                 end
             end
         end
@@ -223,6 +292,7 @@ local function EnsureHooks()
                             BAR.cdIDBySpell[spellID] = cdID
                             -- 记到 frame 上（非 secret 字段），供 FindFrameForSpell 实时匹配
                             f.__BARSpellID = spellID
+                            f.__BARSpellIDs = CollectItemSpellIDs(info)
                             -- 钩住该 CDM item 的 RefreshData，战斗中暴雪刷新时驱动覆盖层更新
                             HookViewerItem(f)
                             -- 立即更新一次（首次出现即有数据则显示）
@@ -596,18 +666,15 @@ end)
 -- =========================================================
 -- 第二段：覆盖层渲染（原 Overlay.lua）
 -- =========================================================
--- 把"已绑定"的 CDM 增益的【剩余时间(按自身/别人buff/debuff 染色,左下)】与【层数(粉红,左上)】渲染到原生动作条按钮上（字号/颜色取自 Settings，均带重描边）。
+-- 把"已绑定"的 CDM 增益的【剩余时间】与【层数】渲染到原生动作条按钮上。
 --
--- ⚠️ 战斗中数据来源（踩过的坑，已修正）：
---   C_UnitAuras.GetAuraDataByAuraInstanceID 返回的 duration/expirationTime/applications
---   全部是【secret 值】，addon 代码一旦读取/比较/相减就会在战斗中报错
---   （"attempt to compare ... secret number ... tainted"），导致「战斗中不显示，脱战才显示」。
---   正确做法（与 CDMButtonAuras 一致，绝不自己读 secret 数字做算术）：
---     - 时间：C_UnitAuras.GetAuraDuration(unit, instanceID) 拿到 DurationObject，
---             直接交给 Cooldown 控件的 SetCooldownFromDurationObject（暴雪内部读 secret，addon 不碰数字）。
---     - 层数：C_UnitAuras.GetAuraApplicationDisplayCount(unit, instanceID) 是【非 secret】的显示访问器，
---             直接 SetText（返回普通数字/字符串，可安全 tonumber 比较）。
---   数据真正来自 CDM item frame 的 frame.auraDataUnit / frame.auraInstanceID。
+-- ⚠️ 12.1 正确做法（本插件最终方案）：
+--   不读任何 aura 数据——把 CDM item frame（BuffIconCooldownViewer）上暴雪已渲染好的
+--   倒计时 Cooldown 控件与层数 FontString 直接 reparent 到按钮容器，
+--   由暴雪继续驱动（RefreshData → SetCooldown / SetText）。
+--   → 战斗中照常显示、零 secret 读取、无 taint。
+--   （旧方案 GetAuraDuration / GetAuraDataCached / cooldownStartTime 读数据，
+--     12.1 中 aura 为 secret 时对插件 Lua error 或返回 secret 值，已弃用。）
 -- 仅暴雪原生动作条按钮；绑定条隐藏时信息不显示（GetRect() 守卫，绝不锚到按钮）。
 -- 覆盖层只渲染文字，不画增益图标（满足"图标不显示"）。
 -- 中央调试显示（旧 /bar center）已移除。
@@ -616,7 +683,7 @@ end)
 --   早期用本插件自己的 OnUpdate 每 0.1s 读受保护 aura 数据并改写"挂在安全动作按钮上的子帧"，
 --   进战斗后 combat-lockdown 的 taint 复检会把覆盖层整片隐藏、脱战才恢复。
 --   现改为 hook 每个 CDM item 的 RefreshData（暴雪驱动、战斗中照常触发），
---   在【暴雪的刷新上下文】里读 aura 数据并更新覆盖层（与 CDMButtonAuras 同款战斗安全机制）。
+--   在【暴雪的刷新上下文】里 reparent 已渲染对象并更新覆盖层。
 --   倒计时本身由 Cooldown 控件自己动画，无需我们每帧刷。
 
 local unpack = unpack or table.unpack
@@ -665,26 +732,10 @@ local function IsNativeButton(name)
     return false
 end
 
--- 给 Cooldown 的【内置倒计时数字】上字体/颜色（tullaCTC 在 12.x/Midnight 的验证做法）。
--- 关键：cd:SetCountdownFont(路径,字号,描边) 签名是错的（该 API 只吃字体对象名字符串），
---       SetTimerTextColor 在 12.x 不存在——两者都会静默失败 → 字体/颜色退回默认白色。
--- 正确：cd:GetCountdownFontString() 拿到内置 FontString，直接 SetFont + SetTextColor。
--- 该 FontString 要等冷却真正运行、暴雪渲染出数字后才存在，故每次更新后都调一次（幂等、廉价）。
-local function StyleCountdown(cd, color)
-    local fs = cd.GetCountdownFontString and cd:GetCountdownFontString()
-    if not fs then return end
-    -- 时间字号：默认位置用基准字号；非默认位置（上/下/左/右）放大到 1.2×；并按按钮缩放 r
-    local r = cd.__BARr or 1
-    local pos = cd.__BARtimePos
-    local tScale = (pos and pos ~= "默认") and 1.2 or 1.0
-    fs:SetFont(S.FONT, math.max(1, math.floor(S.FONT_SIZE * tScale * r + 0.5)), S.OUTLINE)
-    if color then fs:SetTextColor(color[1], color[2], color[3]) end
-end
-
--- 创建一个"计时器(Cooldown) + 层数(FontString)"显示单元，挂到 parent 上。
--- 计时器用暴雪 secret-safe 的 DurationObject 显示（addon 不读 secret 数字），
--- 层数用非 secret 访问器 GetAuraApplicationDisplayCount 直接 SetText。
--- 覆盖层挂在一个【纯 UIParent 中立容器】上，与动作按钮【零锚依赖】（绝不 SetPoint 到按钮）。
+-- 创建一个容器：承载从 CDM item frame reparent 进来的已渲染对象
+-- （倒计时 Cooldown 控件、层数 FontString）。addon 不创建自己的 Cooldown/文字，
+-- 暴雪继续驱动这些对象 → 战斗中照常显示、零 secret 读取。
+-- 覆盖层挂在【纯 UIParent 中立容器】上，与动作按钮【零锚依赖】（绝不 SetPoint 到按钮）。
 -- 为什么要这么做：若把覆盖层锚到安全动作按钮（即使它挂在 UIParent 上），
 -- 非安全帧依赖安全帧会把 taint 传播到动作条按钮 → 进战斗后 combat-lockdown 把整条动作条
 -- 判定污染而隐藏覆盖层（"进战斗消失、脱战才恢复"）。
@@ -697,24 +748,8 @@ local function CreateAuraDisplay(parent)
     container:SetFrameLevel(1000)
     -- 临时尺寸，首次 PositionOverlay 时按按钮真实尺寸重设
     container:SetSize(36, 36)
-
-    local cd = CreateFrame("Cooldown", nil, container, "CooldownFrameTemplate")
-    cd:SetDrawSwipe(false)          -- 不画冷却扫光
-    cd:SetDrawEdge(false)
-    if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(false) end  -- 显示倒计时数字
-    if cd.SetCountdownAbbrevThreshold then cd:SetCountdownAbbrevThreshold(60) end
-    -- 计时数字落在按钮【左下】区域；cd 的分区锚点在 PositionOverlay 里按真实容器尺寸设置
-    -- （字体/颜色不在这里设——CooldownFrameTemplate 的倒计时 FontString 要等冷却真正运行后
-    --   才由暴雪创建，改用 StyleCountdown 在每次更新后拿 GetCountdownFontString 上样式）。
-    cd:Hide()
-
-    local stack = container:CreateFontString(nil, "OVERLAY")
-    stack:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
-    stack:SetJustifyH("LEFT")
-    stack:Hide()
-    -- 位置/字号留到 PositionOverlay 里按按钮缩放 r 设置（与 AutoCDM 的按钮子帧视觉对齐）
-
-    return cd, stack, container
+    container:Hide()
+    return container
 end
 
 -- 把覆盖层容器定位到动作按钮之上（用屏幕坐标，绝不锚到按钮）。
@@ -737,138 +772,130 @@ local function PositionOverlay(ov)
     ov.container:ClearAllPoints()
     ov.container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
     ov.container:SetSize(cw, ch)
-    -- 时间矩形（倒计时数字）：
-    --   默认：左下角 62% 框（贴近按钮左下角，与原实现一致）。
-    --   上/下/左/右：0.68 方块（比默认大 10%）居中于按钮对应边外 10px。
-    --   cw/ch 已含按钮缩放 r，满足"大小按照按钮缩放"。
-    if ov.cd then
-        ov.cd:ClearAllPoints()
-        local pos = (BAR.GetBindingOption and BAR.GetBindingOption(ov.spellID, "timePos")) or "默认"
-        if pos ~= "上" and pos ~= "下" and pos ~= "左" and pos ~= "右" then pos = "默认" end
-        if pos == "上" then
-            ov.cd:SetSize(cw * 0.68, ch * 0.68)
-            ov.cd:SetPoint("CENTER", ov.container, "TOP", 0, 10 * r)
-        elseif pos == "下" then
-            ov.cd:SetSize(cw * 0.68, ch * 0.68)
-            ov.cd:SetPoint("CENTER", ov.container, "BOTTOM", 0, -10 * r)
-        elseif pos == "左" then
-            ov.cd:SetSize(cw * 0.68, ch * 0.68)
-            ov.cd:SetPoint("CENTER", ov.container, "LEFT", -10 * r, 0)
-        elseif pos == "右" then
-            ov.cd:SetSize(cw * 0.68, ch * 0.68)
-            ov.cd:SetPoint("CENTER", ov.container, "RIGHT", 10 * r, 0)
-        else  -- 默认：左下角 62% 框（贴近按钮左下角，与原实现一致）
-            ov.cd:SetPoint("BOTTOMLEFT", ov.container, "BOTTOMLEFT", 1, -6)
-            ov.cd:SetPoint("TOPRIGHT", ov.container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
-        end
-        ov.cd.__BARr = r  -- 供 StyleCountdown 按按钮缩放算字号
-        ov.cd.__BARtimePos = pos  -- 供 StyleCountdown 据 timePos 决定字号倍数
-    end
-
-    -- 层数位置（支持与时间位置一致的 默认/上/下/左/右）：
-    --   默认：左上 5, -5（与原实现一致）；上/下/左/右：居中于按钮对应边外 10px。
-    if ov.stackText then
-        ov.stackText:ClearAllPoints()
-        local spos = (BAR.GetBindingOption and BAR.GetBindingOption(ov.spellID, "stackPos")) or "默认"
-        if spos ~= "上" and spos ~= "下" and spos ~= "左" and spos ~= "右" then spos = "默认" end
-        if spos == "上" then
-            ov.stackText:SetPoint("CENTER", ov.container, "TOP", 0, 10 * r)
-        elseif spos == "下" then
-            ov.stackText:SetPoint("CENTER", ov.container, "BOTTOM", 0, -10 * r)
-        elseif spos == "左" then
-            ov.stackText:SetPoint("CENTER", ov.container, "LEFT", -10 * r, 0)
-        elseif spos == "右" then
-            ov.stackText:SetPoint("CENTER", ov.container, "RIGHT", 10 * r, 0)
-        else  -- 默认：左上 5, -5
-            ov.stackText:SetPoint("TOPLEFT", ov.container, "TOPLEFT", 5 * r, -5 * r)
-        end
-        -- 层数字号：默认位置用基准字号；非默认位置（上/下/左/右）放大到 1.2× 与时间一致
-        local stackFont = (spos == "默认") and (S.FONT_SIZE * r) or (S.FONT_SIZE * 1.2 * r)
-        ov.stackText:SetFont(S.FONT, math.max(1, math.floor(stackFont + 0.5)), S.OUTLINE)
-    end
     return true
 end
 
--- 战斗安全刷新：
---   - 时间：交给 Cooldown 控件（基于 CDM frame 的 auraDataUnit/auraInstanceID；
---            GetAuraDuration 返回 DurationObject 由暴雪内部显示，addon 不碰 secret 数字）。
---   - 层数：用 GetAuraApplicationDisplayCount（CDMButtonAuras 同款、战斗中可用、非 secret 访问器），
---            直接 SetText 原始返回值；>1 判断放进 pcall，避免任何 secret 比较导致 taint 崩溃。
---            （本客户端中 frame.Applications.Applications:GetText() 返回 secret 字符串，不能用。）
--- 永久型增益（如风之舞 9 层）GetAuraDuration 返回 nil → 不显时间，但层数照常显。
--- showTimeOpt / showStackOpt：该绑定的显示开关（false=不显示）；nil 视为显示。
-local function UpdateAuraDisplay(cd, stack, frame, showTimeOpt, showStackOpt, spellID, button)
-    local showTimeAllowed = (showTimeOpt ~= false)
-    local showStackAllowed = (showStackOpt ~= false)
-    local unit = frame and frame.auraDataUnit
-    local instID = frame and frame.auraInstanceID
-    -- 取 debuff 判定（仅读非 secret 的 isHarmful 布尔，pcall 兜底）用于 buff/debuff 配色
-    -- ⚠️ 不能用 auraType 字符串比对：新客户端 auraType 是 Enum 数字，比对永远失败 → 全误判成 buff。
-    local isHarmful
-    local auraActive = false
-    if unit and instID then
-        local ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, instID)
-        if ok and data then
-            isHarmful = data.isHarmful
-            auraActive = true
-        end
-    end
+-- 战斗安全刷新：把 CDM item frame 上暴雪已渲染的倒计时/层数对象 reparent 到按钮容器。
+-- 由暴雪驱动刷新（RefreshData → SetCooldown / SetText），addon 完全不读 aura 数据 →
+-- 战斗中照常显示、零 secret。发光模式用 frame:IsShown() 判断激活（普通帧状态，非 secret）。
+-- ⚠️ 12.1：绝不读 frame.auraDataCached / GetAuraDuration 等 secret 值。
+local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, spellID, button)
+    local ok = pcall(function()
+        if not container then return end
+        local showTimeAllowed = (showTimeOpt ~= false)
+        local showStackAllowed = (showStackOpt ~= false)
 
-    -- 发光模式判定（timePos=="发光"）：光环激活则发光、隐藏时间；否则熄灭。
-    -- 判定复用 auraData 存在性（比只看 duration 更稳，能覆盖永久光环如风之舞 9 层）。
-    local glowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "发光")
-    if glowMode then
-        cd:Hide()
-        if auraActive then
+        -- 光环不激活（item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置
+        if not IsItemShown(frame) then
+            container:Hide()
+            ManualGlowStop(button)
+            pcall(function()
+                if frame.__BAROrigParent then
+                    frame:SetParent(frame.__BAROrigParent)
+                    frame.__BAROrigParent = nil
+                    frame:ClearAllPoints()
+                end
+            end)
+            return
+        end
+
+        -- 用户要求：时间/层数已搬到按钮，CDM 原图标/背景框无意义 →
+        -- 把整个 item frame 移到屏幕外（MoveItemOffscreen，见 glowMode/非发光两处）。
+        -- 不 Hide 任何 region；item 的 Show/Hide 状态不因位置改变，IsItemShown 依然有效。
+
+        -- 从 CDM item 拿暴雪已渲染对象
+        local cdFrame = frame.GetCooldownFrame and frame:GetCooldownFrame()
+        local stacksFS = frame.GetApplicationsFontString and frame:GetApplicationsFontString()
+
+        -- 发光模式判定（timePos=="发光"）：光环激活则发光、隐藏时间；否则熄灭。
+        local glowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "发光")
+        if glowMode then
+            container:Hide()
             ManualGlowStart(button)
+            -- 发光模式无倒计时/层数 reparent，直接把整个 item 移到屏幕外（图标+背景框消失）
+            MoveItemOffscreen(frame)
         else
             ManualGlowStop(button)
+            -- reparent 倒计时对象到容器（由暴雪驱动）
+            if cdFrame then
+                cdFrame:SetParent(container)
+                cdFrame:ClearAllPoints()
+                local pos = (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos")) or "默认"
+                local cw, ch = container:GetSize()
+                if pos == "上" then
+                    cdFrame:SetSize(cw * 0.68, ch * 0.68)
+                    cdFrame:SetPoint("CENTER", container, "TOP", 0, 10)
+                elseif pos == "下" then
+                    cdFrame:SetSize(cw * 0.68, ch * 0.68)
+                    cdFrame:SetPoint("CENTER", container, "BOTTOM", 0, -10)
+                elseif pos == "左" then
+                    cdFrame:SetSize(cw * 0.68, ch * 0.68)
+                    cdFrame:SetPoint("CENTER", container, "LEFT", -10, 0)
+                elseif pos == "右" then
+                    cdFrame:SetSize(cw * 0.68, ch * 0.68)
+                    cdFrame:SetPoint("CENTER", container, "RIGHT", 10, 0)
+                else  -- 默认：左下角 62% 框
+                    cdFrame:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 1, -6)
+                    cdFrame:SetPoint("TOPRIGHT", container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
+                end
+                if showTimeAllowed then
+                    cdFrame:Show()
+                else
+                    cdFrame:Hide()
+                end
+                -- 去掉冷却扫光（转圈扇形指示）与边缘描边——只留倒计时数字，不要淡淡背景
+                -- ⚠️ 暴雪每次 RefreshData 都会 SetDrawSwipe(true)，故每次更新都重新关掉
+                cdFrame:SetDrawSwipe(false)
+                cdFrame:SetDrawEdge(false)
+                -- 应用 Settings 样式（颜色/字号/描边，可在 Settings.lua 修改）。
+                -- ⚠️ 倒计时数字 FontString 要等冷却真正运行后暴雪才创建，每次更新都调（幂等）。
+                --    无 buff/debuff 判定（不读 secret），时间统一用 S.TIME_COLOR_OTHER_BUFF。
+                local cds = cdFrame.GetCountdownFontString and cdFrame:GetCountdownFontString()
+                if cds then
+                    cds:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+                    cds:SetTextColor(S.TIME_COLOR_OTHER_BUFF[1], S.TIME_COLOR_OTHER_BUFF[2], S.TIME_COLOR_OTHER_BUFF[3])
+                end
+            end
+            -- reparent 层数对象到容器（由暴雪驱动）
+            if stacksFS then
+                stacksFS:SetParent(container)
+                stacksFS:ClearAllPoints()
+                local spos = (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "stackPos")) or "默认"
+                if spos == "上" then
+                    stacksFS:SetPoint("CENTER", container, "TOP", 0, 10)
+                elseif spos == "下" then
+                    stacksFS:SetPoint("CENTER", container, "BOTTOM", 0, -10)
+                elseif spos == "左" then
+                    stacksFS:SetPoint("CENTER", container, "LEFT", -10, 0)
+                elseif spos == "右" then
+                    stacksFS:SetPoint("CENTER", container, "RIGHT", 10, 0)
+                else  -- 默认：左上 5, -5
+                    stacksFS:SetPoint("TOPLEFT", container, "TOPLEFT", 5, -5)
+                end
+                stacksFS:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+                stacksFS:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
+                if showStackAllowed then
+                    stacksFS:Show()
+                else
+                    stacksFS:Hide()
+                end
+            end
+            -- reparent 完成，倒计时/层数已移出 item → 把整个 item 移到屏幕外（图标+背景框消失）
+            MoveItemOffscreen(frame)
+            container:Show()
         end
-    else
-        -- 非发光模式：若之前处于发光（从"发光"切回）则清掉，避免残留
+    end)
+    if not ok then
+        if container then container:Hide() end  -- 兜底：任何 secret/taint 操作失败都不让错误冒泡
         ManualGlowStop(button)
-    end
-
-    local showTime = false
-    if showTimeAllowed and not glowMode and unit and instID then
-        local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, unit, instID)
-        if ok and durObj then
-            cd:SetCooldownFromDurationObject(durObj, true)
-            cd:Show()
-            StyleCountdown(cd, S.GetTimeColor(unit, isHarmful))  -- 按自身/别人buff/debuff 上色
-            showTime = true
-        end
-    end
-    if not showTime then cd:Hide() end
-
-    -- 层数：用 GetAuraApplicationDisplayCount（CDMButtonAuras 同款、战斗中可用、非 secret 访问器）。
-    -- 直接 SetText 原始返回值；>1 的判断整个放进 pcall，避免任何 secret 字符串比较导致 taint 崩溃。
-    -- 注意：frame.Applications.Applications:GetText() 在本客户端返回 secret 字符串，绝不能取/比较。
-    -- 颜色统一为粉红（S.STACK_COLOR）。
-    local showStack, stackVal = false, nil
-    if showStackAllowed and unit and instID then
-        -- 与 AutoCDM 对齐：只要光环存在（cnt ~= nil）就显示原始层数（含 "1"），不隐藏单层的 1。
-        -- 旧逻辑用 n > 1 闸门，导致不可叠加/单层光环（如痛击）的层数永不显示，与 AutoCDM 行为不一致。
-        local okC, cnt = pcall(C_UnitAuras.GetAuraApplicationDisplayCount, unit, instID)
-        if okC and cnt ~= nil then
-            showStack = true
-            stackVal = cnt
-        end
-    end
-    if showStack then
-        stack:SetText(stackVal)
-        stack:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
-        stack:Show()
-    else
-        stack:Hide()
     end
 end
 
 local function MakeOverlay(spellID, buttonName)
     local btn = _G[buttonName]
     if not btn then return nil end
-    local cd, stack, container = CreateAuraDisplay(btn)
-    local ov = { buttonName = buttonName, button = btn, cd = cd, stackText = stack, container = container, spellID = spellID }
+    local container = CreateAuraDisplay(btn)
+    local ov = { buttonName = buttonName, button = btn, container = container, spellID = spellID }
     PositionOverlay(ov)
     return ov
 end
@@ -900,8 +927,6 @@ function BAR.RebuildOverlays()
     for sid, ov in pairs(overlays) do
         local target = anchorFor(sid)
         if not target or target == "" or not IsNativeButton(target) or not _G[target] then
-            if ov.cd then ov.cd:Hide() end
-            if ov.stackText then ov.stackText:Hide() end
             if ov.container then ov.container:Hide() end
             ManualGlowStop(ov.button)
             overlays[sid] = nil
@@ -915,8 +940,6 @@ function BAR.RebuildOverlays()
             local ov = overlays[sid]
             if not ov or ov.buttonName ~= target then
                 if ov then
-                    ov.cd:Hide()
-                    ov.stackText:Hide()
                     if ov.container then ov.container:Hide() end
                     ManualGlowStop(ov.button)
                 end
@@ -947,15 +970,12 @@ function BAR.UpdateOverlayForSpell(spellID, frame)
     -- 绑定条不显示（小宠物对战 / 载具 / 御空术等）→ 信息也不显示。
     -- 用 GetRect() 判断可见性（只读，不污染安全帧），不可见则隐藏。
     if not PositionOverlay(ov) then
-        ov.cd:Hide()
-        ov.stackText:Hide()
         if ov.container then ov.container:Hide() end
         ManualGlowStop(ov.button)
         return
     end
-    if ov.container then ov.container:Show() end
     -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
-    UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true, ov.spellID, ov.button)
+    UpdateAuraDisplay(ov.container, frame, true, true, ov.spellID, ov.button)
 end
 
 -- 一次性重新同步所有覆盖层：登录 / 切换专精 / 动作条变动 / 重新扫描后调用。
@@ -964,15 +984,12 @@ function BAR.RefreshAllOverlays()
     for sid, ov in pairs(overlays) do
         -- 用 GetRect() 判断可见性（只读，不污染安全帧），不可见则隐藏
         if not PositionOverlay(ov) then
-            ov.cd:Hide()
-            ov.stackText:Hide()
             if ov.container then ov.container:Hide() end
             ManualGlowStop(ov.button)
         else
-            if ov.container then ov.container:Show() end
             local frame = BAR.FindFrameForSpell and BAR.FindFrameForSpell(sid)
             -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
-            UpdateAuraDisplay(ov.cd, ov.stackText, frame, true, true, sid, ov.button)
+            UpdateAuraDisplay(ov.container, frame, true, true, sid, ov.button)
         end
     end
 end
