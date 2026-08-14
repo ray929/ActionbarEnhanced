@@ -18,7 +18,7 @@
 --   · 武器附魔走 item enchant 通道（非 unit aura），12.1 战斗中不受限，
 --     保持自建 OnUpdate 驱动（与旧实现一致，用户实测正常）。
 --
--- 用法：在下方 PRESETS 里加一行即可，无需改其他代码。
+-- 用法：SELF_BUFFS 按当前职业自动启用；额外预设写 PRESETS；无需改其他代码。
 
 local BAR = ActionbarEnhanced
 if not BAR then return end
@@ -38,33 +38,91 @@ local S = BAR.Settings or {}
 -- 预设支持两种类型：
 --
 -- 类型 A：unit aura（光环）——12.1 AuraContainer 暴雪渲染层，战斗中也能显示
---   auraSpellID   : 要追踪的【光环法术ID】（天怒=462854；大地之盾光环=383648）
---   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID，"显示在哪个技能上"；
---                   该技能必须放在动作条上；天怒=462854，大地之盾=974）
---   unit  (可选)  : 光环所在单位，默认 "player"
---   filter(可选)  : "HELPFUL"(默认) 或 "HARMFUL"
---   auraName(可选): 保留字段，新方案按 ID 精确过滤，不再使用
+--   auraSpellID   : 要追踪的【光环法术ID】（单个 number，或 {id1,id2} 数组，任一命中即显示）
+--   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID；该技能必须放在动作条上）
+--   unit(可选)/filter(可选) : "player" / "HELPFUL"(默认)
 --
--- 类型 B：武器临时附魔（weaponEnchant）— 走 item enchant 通道（非 unit aura），【12.1 战斗中也能显示】
+-- 类型 B：武器临时附魔（weaponEnchant）— item enchant 通道（非 unit aura），【12.1 战斗中也能显示】
 --   presetType    : 必须写 "weaponEnchant"
---   enchantID     : 武器附魔 ID（火舌=5400 / 风怒=5401 / 大地生命=6498 / 潮涌者守卫=7528）
---   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID，如火舌武器 318038）
---   enchantName(可选): 仅用于 12.1 新 API 兜底按名字匹配，可省略（旧 API 按 ID 直接匹配）
+--   enchantID     : 武器附魔 ID
+--   actionSpellID : 覆盖显示到哪个技能按钮（施放技能的法术ID）
+--   enchantName(可选): 兼容字段（新方案按 enchantID 匹配，不再用名字）
 --
--- 例：
---   光环 383648（大地之盾变体）显示在技能 974 的按钮上
---   光环 462854（天怒）显示在技能 462854 的按钮上
---   武器附魔 5400（火舌武器）显示在技能 318038（火舌武器）的按钮上
---   武器附魔 6498（大地生命武器）显示在技能 382021 的按钮上
---   武器附魔 7528（唤潮者的护卫）显示在技能 457481 的按钮上
-local PRESETS = {
-    { auraSpellID = 383648, actionSpellID = 974 },
-    { auraSpellID = 462854, actionSpellID = 462854 },
-    { presetType = "weaponEnchant", enchantID = 5400, actionSpellID = 318038, enchantName = "Flametongue" },
-    { presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" },
-    { presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" },
-    -- { auraSpellID = 123456, actionSpellID = 123, unit = "player", filter = "HELPFUL" },
+-- 【按职业自动启用】SELF_BUFFS：玩家自身职业技能产生的 buff 的「光环→法术」映射，
+--   提取自 BuffReminders/Data/Buffs.lua 的 self 表（含萨满武器附魔、盗贼涂毒、圣骑武器仪式等；
+--   已排除药水/食物/磨刀石等消耗品，以及姿态/形态/开关态等非时限光环）。
+--   运行时按当前职业过滤，只给当前角色建容器。
+--
+-- 【手动追加】PRESETS：SELF_BUFFS 未覆盖、需要手动加的预设写这里。
+
+local SELF_BUFFS = {
+    -- 萨满 SHAMAN
+    { class = "SHAMAN", auraSpellID = 383648, actionSpellID = 974 },      -- 大地之盾（光环 383648 → 技能 974）
+    { class = "SHAMAN", auraSpellID = 462854, actionSpellID = 462854 },   -- 天怒（光环=技能）
+    { class = "SHAMAN", auraSpellID = 192106, actionSpellID = 192106 },   -- 闪电之盾
+    { class = "SHAMAN", auraSpellID = 52127, actionSpellID = 52127 },     -- 水之护盾
+    { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 5400, actionSpellID = 318038, enchantName = "Flametongue" },      -- 火舌武器
+    { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 5401, actionSpellID = 33757, enchantName = "Windfury" },          -- 风怒武器
+    { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" }, -- 大地生命武器
+    { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" }, -- 唤潮者护卫
+    -- 盗贼 ROGUE（武器涂毒：光环 = 技能 同 ID）
+    { class = "ROGUE", auraSpellID = 381664, actionSpellID = 381664 },  -- 增效毒药 Amplifying
+    { class = "ROGUE", auraSpellID = 2823, actionSpellID = 2823 },      -- 致命毒药 Deadly
+    { class = "ROGUE", auraSpellID = 315584, actionSpellID = 315584 },  -- 即时毒药 Instant
+    { class = "ROGUE", auraSpellID = 8679, actionSpellID = 8679 },      -- 致伤毒药 Wound
+    { class = "ROGUE", auraSpellID = 381637, actionSpellID = 381637 },  -- 萎缩毒药 Atrophic
+    { class = "ROGUE", auraSpellID = 5761, actionSpellID = 5761 },      -- 麻痹毒药 Numbing
+    { class = "ROGUE", auraSpellID = 3408, actionSpellID = 3408 },      -- 减速毒药 Crippling
+    -- 法师 MAGE
+    { class = "MAGE", auraSpellID = 210126, actionSpellID = 1459 },      -- 奥术魔宠（buff 210126 → 奥术智慧 1459）
+    -- 术士 WARLOCK
+    { class = "WARLOCK", auraSpellID = 196099, actionSpellID = 108503 }, -- 牺牲魔典
+    -- 圣骑士 PALADIN（武器仪式）
+    { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7144, actionSpellID = 433583 }, -- 裁决仪式（buff 433584）
+    { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7143, actionSpellID = 433568 }, -- 圣化仪式（buff 433550）
+    -- 唤魔者 EVOKER（增辉协调：黑 403264 / 铜 403265 二选一）
+    { class = "EVOKER", auraSpellID = { 403264, 403265 }, actionSpellID = 403208 },
 }
+
+-- 手动追加的预设（SELF_BUFFS 之外的写这里；自动的来自上方 SELF_BUFFS）
+local PRESETS = {
+    -- { auraSpellID = 123456, actionSpellID = 123, unit = "player", filter = "HELPFUL" },
+    -- { presetType = "weaponEnchant", enchantID = 5400, actionSpellID = 318038 },
+}
+
+-- 运行时生效的预设 = PRESETS(手动) + 按当前职业过滤的 SELF_BUFFS(自动)，去重
+local ACTIVE_PRESETS = {}
+
+local function PresetKey(p)
+    if p.presetType == "weaponEnchant" then
+        return "E" .. tostring(p.enchantID)
+    end
+    local id = p.auraSpellID
+    if type(id) == "table" then
+        local parts = {}
+        for _, v in ipairs(id) do parts[#parts + 1] = tostring(v) end
+        return "A" .. table.concat(parts, ",")
+    end
+    return "A" .. tostring(id)
+end
+
+local function BuildActivePresets(classToken)
+    wipe(ACTIVE_PRESETS)
+    local seen = {}
+    local function add(p)
+        local key = PresetKey(p)
+        if not seen[key] then
+            seen[key] = true
+            ACTIVE_PRESETS[#ACTIVE_PRESETS + 1] = p
+        end
+    end
+    for _, p in ipairs(PRESETS) do add(p) end
+    if classToken then
+        for _, p in ipairs(SELF_BUFFS) do
+            if p.class == classToken then add(p) end
+        end
+    end
+end
 
 -- =========================================================
 -- 工具函数
@@ -73,6 +131,12 @@ local PRESETS = {
 local function IsSecret(v)
     local ok, res = pcall(function() return issecretvalue and issecretvalue(v) end)
     return ok and res
+end
+
+-- 格式化光环 ID（支持单个 number 或 {id1,id2} 数组）用于日志/状态显示
+local function FmtAuraID(id)
+    if type(id) == "table" then return table.concat(id, "/") end
+    return tostring(id)
 end
 
 -- 复用 AutoCDM 的按钮查找：按法术名找到原生动作条按钮
@@ -180,10 +244,19 @@ local function InitAuraPreset(p)
     --   SetupAuraButton 里要用 p.container 做 SetAllPoints
     p.container = container
 
+    -- 归一化光环 ID（支持单个 number 或 {id1,id2} 数组，任一命中即显示）
+    local auraIDs = p.auraSpellID
+    local includeSpellIDs = {}
+    if type(auraIDs) == "table" then
+        for _, id in ipairs(auraIDs) do includeSpellIDs[id] = true end
+    elseif auraIDs then
+        includeSpellIDs[auraIDs] = true
+    end
+
     local auraFrame
     local ok = pcall(function()
         auraFrame = container:AddAuraSlot("preset", filter, {
-            candidateFilters = { includeSpellIDs = { [p.auraSpellID] = true } },
+            candidateFilters = { includeSpellIDs = includeSpellIDs },
             initializeFrame = function(btn) SetupAuraButton(p, btn) end,
         })
     end)
@@ -226,7 +299,7 @@ local function UpdatePresetAura(p)
     end
     local btn = p.button
     if not btn then
-        if Preset.debug then print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(p.auraSpellID, p.actionSpellID)) end
+        if Preset.debug then print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(FmtAuraID(p.auraSpellID), p.actionSpellID)) end
         container:Hide()
         return
     end
@@ -363,7 +436,7 @@ end
 
 -- 武器附魔非 unit aura → 战斗中也能检测；用低频 ticker 清理到期/重附魔（不读 aura，零 taint）
 local function RefreshWeaponEnchants()
-    for _, p in ipairs(PRESETS) do
+    for _, p in ipairs(ACTIVE_PRESETS) do
         if p.presetType == "weaponEnchant" then
             pcall(UpdatePresetWeaponEnchant, p)
         end
@@ -382,14 +455,14 @@ local function UpdatePreset(p)
 end
 
 local function RefreshAll()
-    for _, p in ipairs(PRESETS) do
+    for _, p in ipairs(ACTIVE_PRESETS) do
         pcall(UpdatePreset, p)
     end
 end
 
 -- 低频 ticker：类型 A 重定位容器 + 轮询倒计时字体；类型 B 清理到期/重附魔
 local function Tick()
-    for _, p in ipairs(PRESETS) do
+    for _, p in ipairs(ACTIVE_PRESETS) do
         if p.presetType ~= "weaponEnchant" then
             pcall(UpdatePresetAura, p)
         end
@@ -417,8 +490,8 @@ end
 -- 诊断状态（/preset）与调试开关（/preset debug）
 -- =========================================================
 function Preset.Status()
-    print("|cff33ccff[Preset]|r 预设数量:" .. #PRESETS .. "（常开，无开关）")
-    for _, p in ipairs(PRESETS) do
+    print("|cff33ccff[Preset]|r 预设数量:" .. #ACTIVE_PRESETS .. "（常开，无开关）")
+    for _, p in ipairs(ACTIVE_PRESETS) do
         local actionName = C_Spell.GetSpellName(p.actionSpellID) or "?"
         local btn = p.button
         if p.presetType == "weaponEnchant" then
@@ -434,7 +507,7 @@ function Preset.Status()
         else
             print(("  光环%s → 技能[%s/%s] 按钮:%s 容器:%s 光环显示:%s")
                 :format(
-                    p.auraSpellID,
+                    FmtAuraID(p.auraSpellID),
                     p.actionSpellID, actionName,
                     btn and "找到" or "未找到",
                     p.container and "已建" or (p._initFailed and "建失败(等脱战)" or "未建"),
@@ -470,20 +543,23 @@ evFrame:RegisterUnitEvent("UNIT_AURA", "player")
 
 evFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
+        -- 按当前职业构建生效预设（PRESETS 手动 + SELF_BUFFS 按职业自动过滤）
+        local _, classToken = UnitClass("player")
+        BuildActivePresets(classToken)
         -- 登录后稍候一帧再刷新，确保动作条按钮已就绪
         C_Timer.After(0, RefreshAll)
         -- 低频 ticker：类型 A 重定位/字体 + 类型 B 清理（AuraContainer 内部自行监听 UNIT_AURA）
         C_Timer.NewTicker(1, Tick)
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         -- 动作条布局变化：清空缓存的按钮引用，下次刷新重新查找并重新定位
-        for _, p in ipairs(PRESETS) do p.button = nil end
+        for _, p in ipairs(ACTIVE_PRESETS) do p.button = nil end
         RefreshAll()
     elseif event == "UNIT_AURA" then
         -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
         RefreshAll()
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 脱战：解除战斗中建容器失败的限制，重试创建并刷新
-        for _, p in ipairs(PRESETS) do p._initFailed = nil end
+        for _, p in ipairs(ACTIVE_PRESETS) do p._initFailed = nil end
         RefreshAll()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
         -- 武器附魔变化：直接刷新（不走 aura 受限逻辑，战斗中也安全）
