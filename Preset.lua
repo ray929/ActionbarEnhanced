@@ -74,14 +74,23 @@ local SELF_BUFFS = {
     { class = "ROGUE", auraSpellID = 5761, actionSpellID = 5761 },      -- 麻痹毒药 Numbing
     { class = "ROGUE", auraSpellID = 3408, actionSpellID = 3408 },      -- 减速毒药 Crippling
     -- 法师 MAGE
+    { class = "MAGE", auraSpellID = 1459, actionSpellID = 1459 },        -- 奥术智慧（团队增益）
     { class = "MAGE", auraSpellID = 210126, actionSpellID = 1459 },      -- 奥术魔宠（buff 210126 → 奥术智慧 1459）
     -- 术士 WARLOCK
     { class = "WARLOCK", auraSpellID = 196099, actionSpellID = 108503 }, -- 牺牲魔典
+    -- 战士 WARRIOR
+    { class = "WARRIOR", auraSpellID = 6673, actionSpellID = 6673 },     -- 战斗怒吼（团队增益）
+    -- 德鲁伊 DRUID
+    { class = "DRUID", auraSpellID = 1126, actionSpellID = 1126 },       -- 野性印记（团队增益，432661 为 NPC 版）
+    -- 牧师 PRIEST
+    { class = "PRIEST", auraSpellID = 21562, actionSpellID = 21562 },    -- 真言术韧（团队增益）
     -- 圣骑士 PALADIN（武器仪式）
     { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7144, actionSpellID = 433583 }, -- 裁决仪式（buff 433584）
     { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7143, actionSpellID = 433568 }, -- 圣化仪式（buff 433550）
     -- 唤魔者 EVOKER（增辉协调：黑 403264 / 铜 403265 二选一）
     { class = "EVOKER", auraSpellID = { 403264, 403265 }, actionSpellID = 403208 },
+    -- 唤魔者 EVOKER 青铜龙祝福（团队增益，光环为多阶段变体）
+    { class = "EVOKER", auraSpellID = { 381732, 381741, 381746, 381748, 381749, 381750, 381751, 381752, 381753, 381754, 381756, 381757, 381758 }, actionSpellID = 364342 },
 }
 
 -- 手动追加的预设（SELF_BUFFS 之外的写这里；自动的来自上方 SELF_BUFFS）
