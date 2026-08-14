@@ -1,0 +1,492 @@
+-- ActionbarEnhanced/Preset.lua
+-- 预设显示模块：追踪【不在 CDM 里的光环】（CDM 不渲染 → 没有可 reparent 的对象）。
+--
+-- 12.1 现实（已核实官方 API 文档 + Patch 12.1.0/API_changes）：
+--   · 大地之盾(974/383648)、天怒(462854)不在 CDM 追踪集，且大地之盾已被暴雪
+--     移出 "never secret" 白名单 → 战斗中(及副本/M+/PvP 受限场景)插件用
+--     C_UnitAuras 自建查询一律读到 secret/空，【任何插件都无法在战斗中读取】。
+--     （旧版能显示是因为 12.0.7 白名单还在，12.1 已移除，非代码改坏。）
+--
+-- 本模块改用 12.1 官方安全通道：【AuraContainer】（暴雪渲染层）：
+--   · 每个预设一个容器(CustomAuraContainerTemplate)，按 includeSpellIDs 过滤光环；
+--     光环数据由暴雪【特权】读取（AuraContainerPublicAuraSource），addon 零读取、
+--     零 secret/taint 问题 → 战斗中照常显示与更新。
+--   · 容器内 AuraButton 由暴雪驱动：倒计时(SetCooldownFromDurationObject)、
+--     层数(SetApplicationCount)、显隐(ApplyVisibility)——addon 不读任何字段。
+--   · addon 只负责两件事：把容器定位到动作条按钮上方（屏幕坐标、零锚依赖），
+--     以及在 initializeFrame 回调里创建并注册子控件（必须 parent 到 AuraButton）。
+--   · 武器附魔走 item enchant 通道（非 unit aura），12.1 战斗中不受限，
+--     保持自建 OnUpdate 驱动（与旧实现一致，用户实测正常）。
+--
+-- 用法：在下方 PRESETS 里加一行即可，无需改其他代码。
+
+local BAR = ActionbarEnhanced
+if not BAR then return end
+
+local Preset = {}
+BAR.Preset = Preset
+
+Preset.debug = (ActionbarEnhancedDB and ActionbarEnhancedDB.presetDebug) or false
+                 -- 诊断开关：游戏内输入 /preset debug 切换详细日志（存盘持久化，reload 不丢）
+
+-- 共用 Settings.lua 的样式配置（字体 / 字号 / 描边 / 配色）
+local S = BAR.Settings or {}
+
+-- =========================================================
+-- 预设数据（用户编辑区）
+-- =========================================================
+-- 预设支持两种类型：
+--
+-- 类型 A：unit aura（光环）——12.1 AuraContainer 暴雪渲染层，战斗中也能显示
+--   auraSpellID   : 要追踪的【光环法术ID】（天怒=462854；大地之盾光环=383648）
+--   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID，"显示在哪个技能上"；
+--                   该技能必须放在动作条上；天怒=462854，大地之盾=974）
+--   unit  (可选)  : 光环所在单位，默认 "player"
+--   filter(可选)  : "HELPFUL"(默认) 或 "HARMFUL"
+--   auraName(可选): 保留字段，新方案按 ID 精确过滤，不再使用
+--
+-- 类型 B：武器临时附魔（weaponEnchant）— 走 item enchant 通道（非 unit aura），【12.1 战斗中也能显示】
+--   presetType    : 必须写 "weaponEnchant"
+--   enchantID     : 武器附魔 ID（火舌=5400 / 风怒=5401 / 大地生命=6498 / 潮涌者守卫=7528）
+--   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID，如火舌武器 318038）
+--   enchantName(可选): 仅用于 12.1 新 API 兜底按名字匹配，可省略（旧 API 按 ID 直接匹配）
+--
+-- 例：
+--   光环 383648（大地之盾变体）显示在技能 974 的按钮上
+--   光环 462854（天怒）显示在技能 462854 的按钮上
+--   武器附魔 5400（火舌武器）显示在技能 318038（火舌武器）的按钮上
+--   武器附魔 6498（大地生命武器）显示在技能 382021 的按钮上
+--   武器附魔 7528（唤潮者的护卫）显示在技能 457481 的按钮上
+local PRESETS = {
+    { auraSpellID = 383648, actionSpellID = 974 },
+    { auraSpellID = 462854, actionSpellID = 462854 },
+    { presetType = "weaponEnchant", enchantID = 5400, actionSpellID = 318038, enchantName = "Flametongue" },
+    { presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" },
+    { presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" },
+    -- { auraSpellID = 123456, actionSpellID = 123, unit = "player", filter = "HELPFUL" },
+}
+
+-- =========================================================
+-- 工具函数
+-- =========================================================
+-- 安全判断 secret 值（12.1 受限内容返回 secret，不可比较/运算/布尔测试）
+local function IsSecret(v)
+    local ok, res = pcall(function() return issecretvalue and issecretvalue(v) end)
+    return ok and res
+end
+
+-- 复用 AutoCDM 的按钮查找：按法术名找到原生动作条按钮
+local function FindActionButtonForSpellName(name)
+    if not name then return end
+    local barNames = (ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames) or {}
+    for _, actionBar in ipairs(barNames) do
+        if type(actionBar) == "string" then
+            for i = 1, (NUM_ACTIONBAR_BUTTONS or 12) do
+                local btn = _G[actionBar .. i]
+                if btn and btn.action then
+                    local _, actionSpellID = GetActionInfo(btn.action)
+                    if actionSpellID then
+                        local baseSpellID = C_Spell.GetBaseSpell(actionSpellID)
+                        local actionSpellName = C_Spell.GetSpellName(baseSpellID)
+                        if name == actionSpellName then
+                            return btn
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for i = 1, (NUM_SPECIAL_BUTTONS or 10) do
+        local stanceBtn = StanceBar and StanceBar.actionButtons and StanceBar.actionButtons[i]
+        if stanceBtn then
+            local stanceSpellID = select(4, GetShapeshiftFormInfo(stanceBtn:GetID()))
+            if stanceSpellID then
+                local stanceSpellName = C_Spell.GetSpellName(stanceSpellID)
+                if name == stanceSpellName then
+                    return stanceBtn
+                end
+            end
+        end
+    end
+end
+
+-- =========================================================
+-- 类型 A：unit aura —— 12.1 AuraContainer 暴雪渲染层
+-- =========================================================
+-- 把容器定位到动作按钮之上（屏幕坐标，绝不锚到按钮；含缩放换算）。
+-- 容器是 addon 创建的普通 Frame，SetPoint/SetSize 均可安全调用。
+local function PositionContainer(container, btn)
+    if not container or not btn then return false end
+    local left, bottom, width, height = btn:GetRect()
+    if not left then return false end
+    local r = 1
+    local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if bs and ps and ps > 0 then r = bs / ps end
+    container:ClearAllPoints()
+    container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
+    container:SetSize(width * r, height * r)
+    return true
+end
+
+-- 重设 AuraButton 内倒计时框锚点（容器尺寸变化后 62% 框按新尺寸重算）
+local function LayoutAuraChildren(p)
+    local cd, btn = p.cd, p.auraButton
+    if not cd or not btn then return end
+    local w, h = btn:GetSize()
+    if not w or w <= 0 then w, h = 36, 36 end
+    cd:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, -6)
+    cd:SetPoint("TOPRIGHT", btn, "BOTTOMLEFT", w * 0.62, h * 0.62 - 7)
+end
+
+-- initializeFrame 回调：暴雪创建 AuraButton 后，addon 注册子控件。
+-- ⚠️ 子控件必须 parent 到 btn（ValidateInboundScriptObject 强制 descendant，
+--    InitializeInboundScriptObject 禁止之后改 parent），之后由暴雪驱动内容：
+--     · cd  → ApplyDurationCooldown → SetCooldownFromDurationObject（倒计时数字自带）
+--     · fs  → ApplyApplicationCount → SetText（层数，>1 才显示）
+local function SetupAuraButton(p, btn)
+    btn:SetAllPoints(p.container)
+    local cd = CreateFrame("Cooldown", nil, btn)
+    cd:SetDrawSwipe(false)
+    cd:SetDrawEdge(false)
+    cd:SetHideCountdownNumbers(false)
+    btn:SetDurationCooldown(cd)
+    p.cd = cd
+    local fs = btn:CreateFontString(nil, "OVERLAY")
+    fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 5, -5)
+    fs:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+    local sc = S.STACK_COLOR or { 1, 1, 1 }
+    fs:SetTextColor(sc[1], sc[2], sc[3])
+    btn:SetApplicationCount(fs)
+    p.stacksFS = fs
+    p.auraButton = btn
+    LayoutAuraChildren(p)
+end
+
+-- 为预设创建 AuraContainer（每预设一个容器，独立定位到各自按钮）。
+-- 光环过滤用 includeSpellIDs（按 auraData.spellId 精确匹配光环 ID）。
+local function InitAuraPreset(p)
+    if p.container then return true end
+    if p._initFailed then return false end  -- 上次战斗中创建失败 → 等脱战重试
+    local unit = p.unit or "player"
+    local filter = p.filter or "HELPFUL"
+
+    local container = CreateFrame("AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
+    container:SetFrameStrata("HIGH")
+    container:SetFrameLevel(1000)
+    container:SetSize(36, 36)
+    container:SetUnit(unit)
+    container:SetEnabled(true)
+    -- ⚠️ 先挂引用：AddAuraSlot 的 initializeFrame 回调【同步】执行，
+    --   SetupAuraButton 里要用 p.container 做 SetAllPoints
+    p.container = container
+
+    local auraFrame
+    local ok = pcall(function()
+        auraFrame = container:AddAuraSlot("preset", filter, {
+            candidateFilters = { includeSpellIDs = { [p.auraSpellID] = true } },
+            initializeFrame = function(btn) SetupAuraButton(p, btn) end,
+        })
+    end)
+    if not ok then
+        p._initFailed = true
+        p.container = nil
+        container:Hide()
+        return false
+    end
+    p.auraFrame = auraFrame
+    container:Show()
+    return true
+end
+
+-- Cooldown 倒计时数字 FontString 要等暴雪首次 SetCooldownFromDurationObject 后才存在，
+-- 用低频 ticker 轮询，设置一次字体/颜色后标记完成（幂等、廉价）。
+-- ⚠️ 数字 FontString 带 secret aspect，SetFont/SetTextColor 包 pcall 防御。
+local function ApplyCountdownFont(p)
+    local cd = p.cd
+    if not cd or p.cdStyled then return end
+    local cds = cd.GetCountdownFontString and cd:GetCountdownFontString()
+    if not cds then return end
+    local unit = p.unit or "player"
+    local c = (S.GetTimeColor and S.GetTimeColor(unit, false)) or S.TIME_COLOR_OTHER_BUFF or { 1, 1, 0 }
+    pcall(function()
+        cds:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+        cds:SetTextColor(c[1], c[2], c[3])
+    end)
+    p.cdStyled = true
+end
+
+local function UpdatePresetAura(p)
+    if not p.auraSpellID or not p.actionSpellID then return end
+    if not InitAuraPreset(p) then return end
+    local container = p.container
+
+    -- 解析显示目标按钮（缓存，找不到时 ticker 定期重试；该 actionSpellID 必须放在动作条上）
+    if not p.button then
+        p.button = FindActionButtonForSpellName(C_Spell.GetSpellName(p.actionSpellID))
+    end
+    local btn = p.button
+    if not btn then
+        if Preset.debug then print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(p.auraSpellID, p.actionSpellID)) end
+        container:Hide()
+        return
+    end
+    if not PositionContainer(container, btn) then
+        container:Hide()
+        return
+    end
+    LayoutAuraChildren(p)
+    -- 容器保持可见以接收 UNIT_AURA（ShouldRegisterForDynamicEvents = IsVisible and IsEnabled）；
+    -- AuraButton 的显隐由暴雪 ApplyVisibility 控制（有光环显示、无光环隐藏）
+    container:Show()
+    ApplyCountdownFont(p)
+end
+
+-- =========================================================
+-- 类型 B：武器临时附魔（weaponEnchant）
+--   走 item enchant 通道（非 unit aura），12.1 战斗中也能检测（GetWeaponEnchantInfo 战斗安全）。
+--   返回该 enchantID 的【剩余秒数】；未找到返回 nil。
+--     · 主路径 GetWeaponEnchantInfo()  —— 直接返回 enchantID + 剩余毫秒到期，/1000 即剩余秒（BuffReminders 实测）
+--     · 兜底 C_PaperDollInfo.GetTemporaryEnchantmentInfo —— 12.1 官方替代 API
+-- =========================================================
+local function GetWeaponEnchantExpiration(enchantID, enchantName)
+    -- 主路径：旧 API（用户实测 12.1 仍可用）
+    local ok, hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = pcall(GetWeaponEnchantInfo)
+    if ok then
+        if mainID == enchantID and mainExp then return mainExp / 1000 end
+        if offID == enchantID and offExp then return offExp / 1000 end
+    end
+    -- 兜底：12.1 新 API。返回结构 TemporaryItemEnchantInfo{enchantID, remainingTimeMs, ...}，
+    -- 按 enchantID 匹配（注意：结构无 Name 字段，旧代码按名字匹配是错的）
+    local function trySlot(slot)
+        local fok, info = pcall(C_PaperDollInfo.GetTemporaryEnchantmentInfo, slot)
+        if fok and info and info.enchantID == enchantID and info.remainingTimeMs then
+            return info.remainingTimeMs / 1000
+        end
+    end
+    for _, slot in ipairs({ 16, 17 }) do  -- INVSLOT_MAINHAND, INVSLOT_OFFHAND
+        local sec = trySlot(slot)
+        if sec and sec > 0 then return sec end
+    end
+    return nil
+end
+
+-- 武器附魔倒计时逐帧驱动：GetWeaponEnchantInfo 是【非 aura 通道】，战斗中也能安全读取；
+-- 用覆盖层 OnUpdate 每帧重算剩余时间并刷新 Cooldown（start=now、duration=剩余秒 →
+-- 绝对结束时刻恒定，数字逐帧递减）。帧脚本在战斗中照常运行，彻底解决「战斗中倒计时卡住/不更新」。
+local function EnchantTick(ov)
+    local p = ov._preset
+    if not p then ov:SetScript("OnUpdate", nil); return end
+    local expSec = GetWeaponEnchantExpiration(p.enchantID, p.enchantName)
+    if not expSec or expSec <= 0 then
+        ov:Hide()
+        ov:SetScript("OnUpdate", nil)
+        ov._active = false
+        return
+    end
+    local w, h = ov:GetSize()
+    local cd = p.cd
+    cd:SetParent(ov)
+    cd:ClearAllPoints()
+    cd:SetPoint("BOTTOMLEFT", ov, "BOTTOMLEFT", 1, -6)
+    cd:SetPoint("TOPRIGHT", ov, "BOTTOMLEFT", w * 0.62, h * 0.62 - 7)
+    cd:SetDrawSwipe(false)
+    cd:SetDrawEdge(false)
+    cd:SetHideCountdownNumbers(false)
+    pcall(function() cd:SetCooldown(GetTime(), expSec) end)
+    local cds = cd.GetCountdownFontString and cd:GetCountdownFontString()
+    if cds then
+        cds:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
+        local c = S.TIME_COLOR_SELF or { 0.20, 1.00, 0.20 }  -- 自身附魔：鲜绿
+        cds:SetTextColor(c[1], c[2], c[3])
+    end
+    if p.stacksFS then p.stacksFS:Hide() end
+    cd:Show()
+    ov:Show()
+    ov._active = true
+end
+
+-- 类型 B 覆盖层容器：UIParent 中立容器（与动作按钮【零锚依赖】，绝不 SetPoint 到按钮）。
+-- 位置用 btn:GetRect() 读屏幕矩形再摆放（只读，不污染安全帧）。
+local function GetOverlay(p)
+    if p.overlay then return p.overlay end
+    local ov = CreateFrame("Frame", nil, UIParent)
+    ov:SetFrameStrata("HIGH")
+    ov:SetFrameLevel(1000)
+    ov:SetSize(36, 36)
+    ov:Hide()
+    -- 自建显示层（无 CDM 对象可 reparent）：倒计时 Cooldown + 层数 FontString
+    local cd = CreateFrame("Cooldown", nil, ov)
+    cd:SetHideCountdownNumbers(false)   -- 显示倒计时数字
+    cd:Hide()
+    local fs = ov:CreateFontString(nil, "OVERLAY")
+    fs:Hide()
+    p.overlay = ov
+    p.cd = cd
+    p.stacksFS = fs
+    return ov
+end
+
+local function PositionOverlay(ov, btn)
+    if not ov or not btn then return false end
+    local left, bottom, width, height = btn:GetRect()
+    if not left then return false end
+    local r = 1
+    local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if bs and ps and ps > 0 then r = bs / ps end
+    ov:ClearAllPoints()
+    ov:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
+    ov:SetSize(width * r, height * r)
+    return true
+end
+
+local function UpdatePresetWeaponEnchant(p)
+    if not p.enchantID or not p.actionSpellID then return end
+    if not p.button then
+        p.button = FindActionButtonForSpellName(C_Spell.GetSpellName(p.actionSpellID))
+    end
+    local btn = p.button
+    if not btn then
+        if Preset.debug then print(("|cff33ccff[Preset]|r 武器附魔%s → 技能%s 按钮【未找到】"):format(p.enchantID, p.actionSpellID)) end
+        return
+    end
+    local ov = GetOverlay(p)
+    if not PositionOverlay(ov, btn) then
+        ov:Hide()
+        ov:SetScript("OnUpdate", nil)
+        return
+    end
+    -- 武器附魔走非 aura 通道，战斗安全：挂 OnUpdate 每帧刷新（即使此刻正处于战斗）
+    ov._preset = p
+    ov:SetScript("OnUpdate", EnchantTick)
+    EnchantTick(ov)   -- 立即填充一次
+end
+
+-- 武器附魔非 unit aura → 战斗中也能检测；用低频 ticker 清理到期/重附魔（不读 aura，零 taint）
+local function RefreshWeaponEnchants()
+    for _, p in ipairs(PRESETS) do
+        if p.presetType == "weaponEnchant" then
+            pcall(UpdatePresetWeaponEnchant, p)
+        end
+    end
+end
+
+-- =========================================================
+-- 全量刷新
+-- =========================================================
+local function UpdatePreset(p)
+    if p.presetType == "weaponEnchant" then
+        UpdatePresetWeaponEnchant(p)
+    else
+        UpdatePresetAura(p)
+    end
+end
+
+local function RefreshAll()
+    for _, p in ipairs(PRESETS) do
+        pcall(UpdatePreset, p)
+    end
+end
+
+-- 低频 ticker：类型 A 重定位容器 + 轮询倒计时字体；类型 B 清理到期/重附魔
+local function Tick()
+    for _, p in ipairs(PRESETS) do
+        if p.presetType ~= "weaponEnchant" then
+            pcall(UpdatePresetAura, p)
+        end
+    end
+    RefreshWeaponEnchants()
+end
+
+-- =========================================================
+-- 对外接口（供配置面板/诊断调用；预设模块本身常开，无 enable 开关）
+-- =========================================================
+function Preset.RefreshAll()
+    RefreshAll()
+end
+
+-- 类型 A：光环是否激活（AuraButton 显隐由暴雪控制；IsShown 在 12.1 可能返回 secret，防御处理）
+local function AuraFrameShown(p)
+    local f = p.auraFrame
+    if not f then return false end
+    local ok, shown = pcall(function() return f:IsShown() end)
+    if not ok or IsSecret(shown) then return false end
+    return not not shown
+end
+
+-- =========================================================
+-- 诊断状态（/preset）与调试开关（/preset debug）
+-- =========================================================
+function Preset.Status()
+    print("|cff33ccff[Preset]|r 预设数量:" .. #PRESETS .. "（常开，无开关）")
+    for _, p in ipairs(PRESETS) do
+        local actionName = C_Spell.GetSpellName(p.actionSpellID) or "?"
+        local btn = p.button
+        if p.presetType == "weaponEnchant" then
+            local exp = GetWeaponEnchantExpiration(p.enchantID, p.enchantName)
+            print(("  武器附魔%s[%s] → 技能[%s/%s] 按钮:%s 到期:%s 覆盖层:%s")
+                :format(
+                    p.enchantID,
+                    p.enchantName or "?",
+                    p.actionSpellID, actionName,
+                    btn and "找到" or "未找到",
+                    exp and ("%.0f秒"):format(exp) or "无",
+                    (p.overlay and p.overlay:IsShown()) and "显示" or "隐藏"))
+        else
+            print(("  光环%s → 技能[%s/%s] 按钮:%s 容器:%s 光环显示:%s")
+                :format(
+                    p.auraSpellID,
+                    p.actionSpellID, actionName,
+                    btn and "找到" or "未找到",
+                    p.container and "已建" or (p._initFailed and "建失败(等脱战)" or "未建"),
+                    AuraFrameShown(p) and "显示" or "隐藏"))
+        end
+    end
+end
+
+SLASH_BARPRESET1 = "/preset"
+SlashCmdList.BARPRESET = function(msg)
+    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    if msg == "debug" then
+        Preset.debug = not Preset.debug
+        ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+        ActionbarEnhancedDB.presetDebug = Preset.debug
+        print(("|cff33ccff[ActionbarEnhanced]|r 预设调试日志：%s"):format(Preset.debug and "开启" or "关闭"))
+        RefreshAll()
+    else
+        Preset.Status()
+    end
+end
+
+-- =========================================================
+-- 事件
+-- =========================================================
+local evFrame = CreateFrame("Frame")
+evFrame:RegisterEvent("PLAYER_LOGIN")
+evFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+evFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- 脱战：重试战斗中建失败的容器/刷新受限光环
+evFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")  -- 武器附魔（重附/替换/卸下）立即刷新
+evFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")    -- 同上兜底
+evFrame:RegisterUnitEvent("UNIT_AURA", "player")
+
+evFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
+        -- 登录后稍候一帧再刷新，确保动作条按钮已就绪
+        C_Timer.After(0, RefreshAll)
+        -- 低频 ticker：类型 A 重定位/字体 + 类型 B 清理（AuraContainer 内部自行监听 UNIT_AURA）
+        C_Timer.NewTicker(1, Tick)
+    elseif event == "ACTIONBAR_SLOT_CHANGED" then
+        -- 动作条布局变化：清空缓存的按钮引用，下次刷新重新查找并重新定位
+        for _, p in ipairs(PRESETS) do p.button = nil end
+        RefreshAll()
+    elseif event == "UNIT_AURA" then
+        -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
+        RefreshAll()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- 脱战：解除战斗中建容器失败的限制，重试创建并刷新
+        for _, p in ipairs(PRESETS) do p._initFailed = nil end
+        RefreshAll()
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
+        -- 武器附魔变化：直接刷新（不走 aura 受限逻辑，战斗中也安全）
+        RefreshWeaponEnchants()
+    end
+end)

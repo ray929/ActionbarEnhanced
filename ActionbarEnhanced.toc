@@ -28,3 +28,4 @@ HideActionBarBorders.lua
 DisableAutoAddSpells.lua
 RemoveExtraActionButtonTexture.lua
 ButtonClickThrough.lua
+Preset.lua
