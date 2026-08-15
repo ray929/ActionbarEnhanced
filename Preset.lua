@@ -18,7 +18,8 @@
 --   · 武器附魔走 item enchant 通道（非 unit aura），12.1 战斗中不受限，
 --     自建 Cooldown 由 1 秒 ticker 刷新（不挂每帧 OnUpdate）。
 --
--- 用法：SELF_BUFFS 按当前职业自动启用；额外预设写 PRESETS；无需改其他代码。
+-- 用法：基本配置「常见职业技能持续时间显示」为全局开关（默认开启）；
+--       SELF_BUFFS 按当前职业自动启用；额外预设写 PRESETS；无需改其他代码。
 
 local BAR = ActionbarEnhanced
 if not BAR then return end
@@ -557,10 +558,39 @@ local function Tick()
 end
 
 -- =========================================================
--- 对外接口（供配置面板/诊断调用；预设模块本身常开，无 enable 开关）
+-- 对外接口（供配置面板/诊断调用）
 -- =========================================================
 function Preset.RefreshAll()
     RefreshAll()
+end
+
+-- 全局开关（存于 ActionbarEnhancedDB.presetEnabled，默认开启）
+function Preset.IsEnabled()
+    ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+    if ActionbarEnhancedDB.presetEnabled == nil then
+        ActionbarEnhancedDB.presetEnabled = true
+    end
+    return ActionbarEnhancedDB.presetEnabled == true
+end
+
+function Preset.SetEnabled(v)
+    ActionbarEnhancedDB = ActionbarEnhancedDB or {}
+    ActionbarEnhancedDB.presetEnabled = v
+    if v then
+        -- 开启：重建生效预设并全量刷新（ticker 在 PLAYER_LOGIN 已常驻，空表安全）
+        local _, classToken = UnitClass("player")
+        BuildActivePresets(classToken)
+        RefreshAll()
+    else
+        -- 关闭：隐藏已建的容器/覆盖层并清空生效列表
+        for _, p in ipairs(ACTIVE_PRESETS) do
+            if p.container then p.container:Hide() end
+            if p.overlay then p.overlay:Hide() end
+        end
+        wipe(ACTIVE_PRESETS)
+    end
+    print("|cff33ccff[ActionbarEnhanced]|r 常见职业技能持续时间显示已"
+        .. (v and "【启用】" or "【关闭】") .. "。")
 end
 
 -- 类型 A：光环是否激活（AuraButton 显隐由暴雪控制；IsShown 在 12.1 可能返回 secret，防御处理）
@@ -576,7 +606,8 @@ end
 -- 诊断状态（/preset）与调试开关（/preset debug）
 -- =========================================================
 function Preset.Status()
-    print("|cff33ccff[Preset]|r 预设数量:" .. #ACTIVE_PRESETS .. "（常开，无开关）")
+    print("|cff33ccff[Preset]|r 预设数量:" .. #ACTIVE_PRESETS
+        .. (Preset.IsEnabled() and "（全局开启）" or "（全局关闭）"))
     for _, p in ipairs(ACTIVE_PRESETS) do
         local actionName = C_Spell.GetSpellName(p.actionSpellID) or "?"
         local btn = p.button
@@ -642,12 +673,16 @@ evFrame:RegisterEvent("PLAYER_TARGET_CHANGED")   -- 切目标：unit="target" �
 
 evFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
-        -- 按当前职业构建生效预设（PRESETS 手动 + SELF_BUFFS 按职业自动过滤）
+        -- 按当前职业构建生效预设（PRESETS 手动 + SELF_BUFFS 按职业自动过滤）；
+        -- 受全局开关「常见职业技能持续时间显示」控制（默认开启）
         local _, classToken = UnitClass("player")
-        BuildActivePresets(classToken)
-        -- 登录后稍候一帧再刷新，确保动作条按钮已就绪
-        C_Timer.After(0, RefreshAll)
-        -- 低频 ticker：类型 A 重定位/字体 + 类型 B 清理（AuraContainer 内部自行监听 UNIT_AURA）
+        if Preset.IsEnabled() then
+            BuildActivePresets(classToken)
+            -- 登录后稍候一帧再刷新，确保动作条按钮已就绪
+            C_Timer.After(0, RefreshAll)
+        end
+        -- 低频 ticker：类型 A 重定位/字体 + 类型 B 清理（AuraContainer 内部自行监听 UNIT_AURA）；
+        -- 常驻创建：开关关闭时 ACTIVE_PRESETS 为空、tick 无操作，开关切换无需重建
         C_Timer.NewTicker(1, Tick)
     elseif actionbarEvents[event] then
         -- 动作条/页面/形态/载具/御龙术切换：清缓存 + 延迟重匹配。
