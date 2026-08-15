@@ -370,6 +370,20 @@ local function RefreshAllOverlays()
     end
 end
 
+-- UNIT_AURA 高频防抖：战斗中光环增删事件连发，而全量扫（detach+重扫+按钮名匹配）较重。
+-- 合并连发事件，最多每 0.2 秒执行一次全量刷新。倒计时/层数的实时更新不受影响
+-- （由 item 的 RefreshData hook 增量驱动）；这里只负责光环增删的重扫，0.2s 延迟无感。
+local refreshTimer = nil
+local function ScheduleRefresh()
+    if refreshTimer then
+        refreshTimer:Cancel()
+    end
+    refreshTimer = C_Timer.NewTimer(0.2, function()
+        refreshTimer = nil
+        if AutoCDM.IsEnabled() then RefreshAllOverlays() end
+    end)
+end
+
 -- =========================================================
 -- hook 安装 + 事件
 -- =========================================================
@@ -450,6 +464,6 @@ evFrame:SetScript("OnEvent", function(_, event)
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         if AutoCDM.IsEnabled() then RefreshAllOverlays() end
     elseif event == "UNIT_AURA" then
-        if AutoCDM.IsEnabled() then RefreshAllOverlays() end
+        if AutoCDM.IsEnabled() then ScheduleRefresh() end
     end
 end)
