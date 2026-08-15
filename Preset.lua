@@ -65,6 +65,7 @@ local SELF_BUFFS = {
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 5401, actionSpellID = 33757, enchantName = "Windfury" },          -- 风怒武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" }, -- 大地生命武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" }, -- 唤潮者护卫
+    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL" },
     -- 盗贼 ROGUE（武器涂毒：光环 = 技能 同 ID）
     { class = "ROGUE", auraSpellID = 381664, actionSpellID = 381664 },  -- 增效毒药 Amplifying
     { class = "ROGUE", auraSpellID = 2823, actionSpellID = 2823 },      -- 致命毒药 Deadly
@@ -88,7 +89,7 @@ local SELF_BUFFS = {
     { class = "PRIEST", auraSpellID = 10060, actionSpellID = 10060 },    -- 能量灌注
     { class = "PRIEST", auraSpellID = 19236, actionSpellID = 19236 },    -- 绝望祷言
     { class = "PRIEST", auraSpellID = 17, actionSpellID = 17 },    -- 真言术盾
-    { class = "PRIEST",  auraSpellID = 121557,                                                                                                     actionSpellID = 121536 }, -- 羽毛
+    { class = "PRIEST",  auraSpellID = 121557, actionSpellID = 121536 }, -- 羽毛
     { class = "PRIEST", auraSpellID = 589, actionSpellID = 589, unit = "target", filter = "HARMFUL" }, -- 暗影术痛
 
 
@@ -572,6 +573,7 @@ evFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- 脱战：重试战斗中建�
 evFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")  -- 武器附魔（重附/替换/卸下）立即刷新
 evFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")    -- 同上兜底
 evFrame:RegisterUnitEvent("UNIT_AURA", "player")
+evFrame:RegisterEvent("PLAYER_TARGET_CHANGED")   -- 切目标：unit="target" 的容器需手动刷新
 
 evFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
@@ -589,6 +591,14 @@ evFrame:SetScript("OnEvent", function(_, event)
     elseif event == "UNIT_AURA" then
         -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
         RefreshAll()
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        -- 切目标：AuraContainer 不监听目标切换，unit="target" 的容器不会自动跟随，
+        -- 需显式触发其重新解析光环（暴雪目标框也是这么做：UpdateAuras→UpdateAllAuras）。
+        for _, p in ipairs(ACTIVE_PRESETS) do
+            if p.presetType ~= "weaponEnchant" and p.unit == "target" and p.container then
+                pcall(function() p.container:UpdateAllAuras() end)
+            end
+        end
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 脱战：解除战斗中建容器失败的限制，重试创建并刷新
         for _, p in ipairs(ACTIVE_PRESETS) do p._initFailed = nil end
