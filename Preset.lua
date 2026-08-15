@@ -84,6 +84,11 @@ local SELF_BUFFS = {
     { class = "DRUID", auraSpellID = 1126, actionSpellID = 1126 },       -- 野性印记（团队增益，432661 为 NPC 版）
     -- 牧师 PRIEST
     { class = "PRIEST", auraSpellID = 21562, actionSpellID = 21562 },    -- 真言术韧（团队增益）
+    { class = "PRIEST", auraSpellID = 586, actionSpellID = 586 },    -- 渐隐术
+    { class = "PRIEST", auraSpellID = 10060, actionSpellID = 10060 },    -- 能量灌注
+    { class = "PRIEST", auraSpellID = 19236, actionSpellID = 19236 },    -- 绝望祷言
+    { class = "PRIEST", auraSpellID = 17, actionSpellID = 17 },    -- 真言术盾
+    { class = "PRIEST", auraSpellID = 121557, actionSpellID = 121536 },    -- 羽毛
     -- 圣骑士 PALADIN（武器仪式）
     { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7144, actionSpellID = 433583 }, -- 裁决仪式（buff 433584）
     { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7143, actionSpellID = 433568 }, -- 圣化仪式（buff 433550）
