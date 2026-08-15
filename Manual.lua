@@ -295,6 +295,10 @@ local function EnsureHooks()
     for _, name in ipairs(VIEWER_NAMES) do
         if not hooked[name] then
             local v = _G[name]
+            -- ⚠️ 必须捕获 name 副本：for 循环变量是所有闭包共享的同一个 upvalue，
+            --   循环结束后 name=最后一个 viewer，直接引用会导致所有 viewer 的 hook
+            --   都按"最后一个 viewer"判断 AURA_VIEWERS → 冷却技能也被 RegisterBuff。
+            local viewerName = name
             if v and v.OnAcquireItemFrame then
                 hooksecurefunc(v, "OnAcquireItemFrame", function(_, f)
                     local cdID = FrameCooldownID(f)
@@ -303,7 +307,7 @@ local function EnsureHooks()
                         if ok and info then
                         local spellID = ResolveSpellID(info)
                         if spellID and not IsSecret(spellID) then
-                            if AURA_VIEWERS[name] then
+                            if AURA_VIEWERS[viewerName] then
                                 RegisterBuff(spellID)
                             end
                             BAR.cdIDBySpell[spellID] = cdID
