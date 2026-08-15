@@ -183,11 +183,13 @@ local function HookViewerItem(item)
 end
 
 local function ScanViewerFrames()
+    local totalFrames = 0
     for _, viewerName in ipairs(VIEWER_NAMES) do
         local viewer = _G[viewerName]
         local frames = GetViewerFrames(viewer)
         if frames then
             for _, frame in ipairs(frames) do
+                totalFrames = totalFrames + 1
                 local cdID = FrameCooldownID(frame)
                 if cdID then
                     local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
@@ -211,6 +213,7 @@ local function ScanViewerFrames()
             end
         end
     end
+    return totalFrames
 end
 
 -- 当前 CDM 查看器【活动帧】里 spellID 的集合签名（排序后拼接）。
@@ -274,8 +277,14 @@ function BAR.Rescan()
         if BAR.OnBuffsChanged then BAR.OnBuffsChanged() end
         return
     end
-    wipe(BAR.knownBuffs)
-    ScanViewerFrames()
+    -- 换新表扫描：避免过渡态（CDM 帧重建期间扫空）直接 wipe 清空列表导致"手动配置光环"全消失。
+    -- 扫到 0 帧时保留旧 knownBuffs，等下次签名变化 / OnAcquireItemFrame 增量恢复后再重扫。
+    local oldBuffs = BAR.knownBuffs
+    BAR.knownBuffs = {}
+    local totalFrames = ScanViewerFrames()
+    if totalFrames == 0 and next(oldBuffs) then
+        BAR.knownBuffs = oldBuffs
+    end
     if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
     if BAR.OnBuffsChanged then BAR.OnBuffsChanged() end
 end
