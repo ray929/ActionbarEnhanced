@@ -475,6 +475,9 @@ local function OpenCooldownManager()
     CooldownViewerSettings:Raise()
 end
 
+-- 暴露给小地图按钮右键等：打开/关闭系统自带 CDM
+BAR.OpenCDM = OpenCooldownManager
+
 -- 斜杠命令 /cdm：打开暴雪自带冷却管理器
 SLASH_ACTIONBARENHANCED_CDM1 = "/cdm"
 SlashCmdList["ACTIONBARENHANCED_CDM"] = function()

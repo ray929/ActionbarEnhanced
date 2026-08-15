@@ -41,7 +41,7 @@ local function CreateLDBObject()
                 if BAR.ToggleConfig then BAR.ToggleConfig() end
             elseif button == "RightButton" then
                 -- 右键：打开系统自带 CDM（冷却管理器）
-                OpenCooldownManager()
+                if BAR.OpenCDM then BAR.OpenCDM() end
             end
         end,
         OnTooltipShow = function(tt)

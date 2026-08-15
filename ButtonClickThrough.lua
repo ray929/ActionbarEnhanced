@@ -71,15 +71,6 @@ local function BuildHandler(i)
     return h
 end
 
--- 登录时预建所有 8 个 handler：SetFrameRef 把受保护动作条帧引用给 SecureHandler，属保护操作，
--- 必须在非保护上下文（登录时）一次性完成。若懒加载，首次 ReapplySecure 会在翻页/战斗事件链里
--- 触发 SetFrameRef → ADDON_ACTION_BLOCKED。
-local function PreBuildAll()
-    for i = 1, 8 do
-        BuildHandler(i)
-    end
-end
-
 -- 在安全环境应用某栏（on=true 穿透）。RegisterStateDriver 重注册不同表达式会在安全环境触发 _onstate-ct。
 local function ApplySecure(i, on)
     local h = BuildHandler(i)
@@ -140,37 +131,20 @@ function MOD.SetEnabled(i, v)
     end
 end
 
--- 载入即确保 DB；登录（非战斗）时应用已开启的穿透栏。
--- 各事件重施已开启栏，抵消暴雪可能恢复的交互性（编辑模式退出 / 翻页 / 进战斗后等）。
+-- 只在【非保护上下文】应用穿透：PLAYER_LOGIN（登录）与 PLAYER_REGEN_ENABLED（脱战）。
+-- ⚠️ 绝不监听 ACTIONBAR_PAGE_CHANGED：它在 SetActionBarPage 的保护上下文同步触发，
+--    此时调 RegisterStateDriver/SetFrameRef 会 ADDON_ACTION_BLOCKED，并把整个 addon 标记
+--    taint（badAddons），污染传播到其他插件（如 EllesmereUIRaidFrames 变小变形）。
+--    翻页后暴雪可能恢复鼠标交互导致穿透短暂失效，下次脱战/重载即恢复——为不 taint 的取舍。
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:RegisterEvent("PLAYER_ENTERING_WORLD")
-ev:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
--- 防重入 + 延迟 0.1s：彻底脱离保护功能(SetActionBarPage)的调用栈后再重施，
--- 避免 RegisterStateDriver 在保护上下文被 ADDON_ACTION_BLOCKED
--- （C_Timer.After(0) 仍可能与事件同帧执行，不够安全）。
-local reapplyPending = false
-local function ScheduleReapply()
-    if reapplyPending then return end
-    reapplyPending = true
-    C_Timer.After(0.1, function()
-        reapplyPending = false
-        -- 战斗中跳过（RegisterStateDriver 属保护功能，combat lockdown 下会 block），
-        -- 脱离战斗后 PLAYER_REGEN_ENABLED 会重新触发重施。
-        if InCombatLockdown() then return end
-        for i = 1, 8 do
-            if MOD.IsEnabled(i) then
-                ReapplySecure(i, true)
-            end
-        end
-    end)
-end
-
-ev:SetScript("OnEvent", function(_, event)
+ev:SetScript("OnEvent", function()
     MOD.EnsureDB()
-    if event == "PLAYER_LOGIN" then
-        PreBuildAll()   -- 登录时预建 handler（SetFrameRef 一次性在非保护上下文完成）
+    if InCombatLockdown() then return end
+    for i = 1, 8 do
+        if MOD.IsEnabled(i) then
+            ReapplySecure(i, true)
+        end
     end
-    ScheduleReapply()
 end)
