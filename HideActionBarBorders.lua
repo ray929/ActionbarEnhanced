@@ -67,9 +67,9 @@ local function HideBorder(button)
     end
 end
 
--- 图标素材放大 1.2 倍：暴雪自带图标四周有一圈边框，放大图标纹理使边框超出按钮边界、
--- 视觉上被"隐藏"。⚠️ 用 SetSize+锚定按钮中心（不依赖 SetScale，避免被 icon 锚点/尺寸机制干扰），
--- 只放大图标纹理本身，不改变按钮尺寸/位置、不碰其他控件。
+-- 图标素材放大 1.2 倍：暴雪自带图标四周有一圈边框，放大图标纹理使边框超出按钮边界。
+-- 同时用【方块蒙版】裁切溢出部分（按钮大小），否则图标溢出可见、视觉上像"按钮变大"。
+-- 只放大图标纹理 + 裁切，不改变按钮尺寸/位置/点击范围。
 local ICON_SCALE = 1.2
 local function EnlargeIcon(button)
     local icon = button.icon
@@ -79,6 +79,16 @@ local function EnlargeIcon(button)
     icon:ClearAllPoints()
     icon:SetPoint("CENTER", button, "CENTER", 0, 0)
     icon:SetSize(bw * ICON_SCALE, bh * ICON_SCALE)
+    -- 方块蒙版：纯白方块(按钮大小)裁剪图标，溢出部分透明
+    if not button.__BarSquareMask then
+        pcall(function()
+            local mask = button:CreateMaskTexture(nil, "ARTWORK")
+            mask:SetAllPoints(button)
+            mask:SetTexture("Interface\\Buttons\\WHITE8x8")
+            icon:AddMaskTexture(mask)
+            button.__BarSquareMask = mask
+        end)
+    end
 end
 
 local function AdjustButtonOverlays(button)
