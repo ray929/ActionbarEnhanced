@@ -582,9 +582,21 @@ end
 -- =========================================================
 -- 事件
 -- =========================================================
+-- 动作条/页面/形态/载具/御龙术切换事件集合（对齐 Manual：翻页 PAGE_CHANGED、御龙术 OVERRIDE
+-- 等场景不触发 SLOT_CHANGED，需一并监听才能让"切条后数字消失/跟随"及时生效）。
+local actionbarEvents = {
+    ACTIONBAR_SLOT_CHANGED       = true,
+    ACTIONBAR_PAGE_CHANGED       = true,
+    UPDATE_BONUS_ACTIONBAR       = true,
+    UPDATE_OVERRIDE_ACTIONBAR    = true,
+    UPDATE_SHAPESHIFT_FORM       = true,
+    UPDATE_POSSESS_BAR           = true,
+    UPDATE_MULTI_CAST_ACTIONBAR  = true,
+}
+
 local evFrame = CreateFrame("Frame")
 evFrame:RegisterEvent("PLAYER_LOGIN")
-evFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+for ev in pairs(actionbarEvents) do evFrame:RegisterEvent(ev) end
 evFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- 脱战：重试战斗中建失败的容器/刷新受限光环
 evFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")  -- 武器附魔（重附/替换/卸下）立即刷新
 evFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")    -- 同上兜底
@@ -600,10 +612,11 @@ evFrame:SetScript("OnEvent", function(_, event)
         C_Timer.After(0, RefreshAll)
         -- 低频 ticker：类型 A 重定位/字体 + 类型 B 清理（AuraContainer 内部自行监听 UNIT_AURA）
         C_Timer.NewTicker(1, Tick)
-    elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        -- 动作条布局变化：清空缓存的按钮引用，下次刷新重新查找并重新定位
+    elseif actionbarEvents[event] then
+        -- 动作条/页面/形态/载具/御龙术切换：清缓存 + 延迟重匹配。
+        -- 延迟 0.1s 等动作条布局完成再读坐标/重算匹配，避免切换瞬间取到旧状态（对齐 Manual）。
         for _, p in ipairs(ACTIVE_PRESETS) do p.button = nil end
-        RefreshAll()
+        C_Timer.After(0.1, RefreshAll)
     elseif event == "UNIT_AURA" then
         -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
         RefreshAll()
