@@ -61,6 +61,8 @@ local SELF_BUFFS = {
     { class = "SHAMAN", auraSpellID = 462854, actionSpellID = 462854 },   -- 天怒（光环=技能）
     { class = "SHAMAN", auraSpellID = 192106, actionSpellID = 192106 },   -- 闪电之盾
     { class = "SHAMAN", auraSpellID = 52127, actionSpellID = 52127 },     -- 水之护盾
+    { class = "SHAMAN", auraSpellID = 546, actionSpellID = 546 },     -- 水上行走
+    { class = "SHAMAN", auraSpellID = 6196, actionSpellID = 6196 },     -- 视界术
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 5400, actionSpellID = 318038, enchantName = "Flametongue" },      -- 火舌武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 5401, actionSpellID = 33757, enchantName = "Windfury" },          -- 风怒武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" }, -- 大地生命武器
