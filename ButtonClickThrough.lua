@@ -140,9 +140,14 @@ ev:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:SetScript("OnEvent", function()
     MOD.EnsureDB()
-    for i = 1, 8 do
-        if MOD.IsEnabled(i) then
-            ReapplySecure(i, true)
+    -- ⚠️ 延迟到下一帧再重施：ACTIONBAR_PAGE_CHANGED 等事件可能在保护功能(SetActionBarPage)的
+    -- 同步调用栈内触发，此时 addon 直接调 RegisterStateDriver 会被判定 taint →
+    -- ADDON_ACTION_BLOCKED。用 C_Timer.After(0) 脱离保护上下文后再执行。
+    C_Timer.After(0, function()
+        for i = 1, 8 do
+            if MOD.IsEnabled(i) then
+                ReapplySecure(i, true)
+            end
         end
-    end
+    end)
 end)
