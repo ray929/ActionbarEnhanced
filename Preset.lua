@@ -66,6 +66,7 @@ local SELF_BUFFS = {
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" }, -- 大地生命武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" }, -- 唤潮者护卫
     { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL" },
+    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470057, unit = "target", filter = "HARMFUL" },
     -- 盗贼 ROGUE（武器涂毒：光环 = 技能 同 ID）
     { class = "ROGUE", auraSpellID = 381664, actionSpellID = 381664 },  -- 增效毒药 Amplifying
     { class = "ROGUE", auraSpellID = 2823, actionSpellID = 2823 },      -- 致命毒药 Deadly
@@ -195,14 +196,28 @@ end
 -- =========================================================
 -- 类型 A：unit aura —— 12.1 AuraContainer 暴雪渲染层
 -- =========================================================
--- 重设 AuraButton 内倒计时框锚点（容器尺寸变化后 62% 框按新尺寸重算）
-local function LayoutAuraChildren(p)
-    local cd, btn = p.cd, p.auraButton
-    if not cd or not btn then return end
-    local w, h = btn:GetSize()
-    if not w or w <= 0 then w, h = 36, 36 end
-    cd:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, -6)
-    cd:SetPoint("TOPRIGHT", btn, "BOTTOMLEFT", w * 0.62, h * 0.62 - 7)
+-- 重设 AuraButton 内倒计时框锚点。
+-- ⚠️ 传坐标时用【绝对屏幕坐标】锚到 UIParent——AuraContainer 的 flow layout 会在光环变化/切目标时
+--    异步把容器尺寸覆盖成空布局值(≈1x1)，若 cd 相对 btn/容器锚定会跟着错位；绝对锚定不受影响。
+--    无坐标时（initializeFrame 阶段）退化为相对 btn 的临时锚点，之后定位时被绝对锚点覆盖。
+local function LayoutAuraChildren(p, left, bottom, width, height, r)
+    local cd = p.cd
+    if not cd then return end
+    if left then
+        r = r or 1
+        local rx, ry = left * r, bottom * r
+        local rw, rh = width * r, height * r
+        cd:ClearAllPoints()
+        cd:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", rx + 1, ry - 6)
+        cd:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", rx + rw * 0.62, ry + rh * 0.62 - 7)
+    else
+        local btn = p.auraButton
+        if not btn then return end
+        local w, h = btn:GetSize()
+        if not w or w <= 0 then w, h = 36, 36 end
+        cd:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, -6)
+        cd:SetPoint("TOPRIGHT", btn, "BOTTOMLEFT", w * 0.62, h * 0.62 - 7)
+    end
 end
 
 -- 把容器定位到动作按钮之上（屏幕坐标，绝不锚到按钮；含缩放换算）。
@@ -225,9 +240,10 @@ local function PositionContainer(container, btn, p)
             p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
         end
     end
-    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖）
+    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖）；
+    -- cd 用绝对屏幕坐标锚定，容器尺寸即使被覆盖也不会让倒计时框错位
     container:SetSize(width * r, height * r)
-    LayoutAuraChildren(p)
+    LayoutAuraChildren(p, left, bottom, width, height, r)
     return true
 end
 
