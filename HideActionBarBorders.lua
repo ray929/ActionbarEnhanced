@@ -68,12 +68,17 @@ local function HideBorder(button)
 end
 
 -- 图标素材放大 1.2 倍：暴雪自带图标四周有一圈边框，放大图标纹理使边框超出按钮边界、
--- 视觉上被"隐藏"。⚠️ 用 SetScale 只放大图标纹理本身，不改变按钮尺寸/位置、不碰其他控件。
+-- 视觉上被"隐藏"。⚠️ 用 SetSize+锚定按钮中心（不依赖 SetScale，避免被 icon 锚点/尺寸机制干扰），
+-- 只放大图标纹理本身，不改变按钮尺寸/位置、不碰其他控件。
 local ICON_SCALE = 1.2
 local function EnlargeIcon(button)
-    if button.icon then
-        button.icon:SetScale(ICON_SCALE)
-    end
+    local icon = button.icon
+    if not icon then return end
+    local bw, bh = button:GetSize()
+    if not bw or bw <= 0 then return end
+    icon:ClearAllPoints()
+    icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+    icon:SetSize(bw * ICON_SCALE, bh * ICON_SCALE)
 end
 
 local function AdjustButtonOverlays(button)
