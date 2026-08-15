@@ -194,21 +194,6 @@ end
 -- =========================================================
 -- 类型 A：unit aura —— 12.1 AuraContainer 暴雪渲染层
 -- =========================================================
--- 把容器定位到动作按钮之上（屏幕坐标，绝不锚到按钮；含缩放换算）。
--- 容器是 addon 创建的普通 Frame，SetPoint/SetSize 均可安全调用。
-local function PositionContainer(container, btn)
-    if not container or not btn then return false end
-    local left, bottom, width, height = btn:GetRect()
-    if not left then return false end
-    local r = 1
-    local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
-    if bs and ps and ps > 0 then r = bs / ps end
-    container:ClearAllPoints()
-    container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
-    container:SetSize(width * r, height * r)
-    return true
-end
-
 -- 重设 AuraButton 内倒计时框锚点（容器尺寸变化后 62% 框按新尺寸重算）
 local function LayoutAuraChildren(p)
     local cd, btn = p.cd, p.auraButton
@@ -217,6 +202,29 @@ local function LayoutAuraChildren(p)
     if not w or w <= 0 then w, h = 36, 36 end
     cd:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, -6)
     cd:SetPoint("TOPRIGHT", btn, "BOTTOMLEFT", w * 0.62, h * 0.62 - 7)
+end
+
+-- 把容器定位到动作按钮之上（屏幕坐标，绝不锚到按钮；含缩放换算）。
+-- 容器是 addon 创建的普通 Frame，SetPoint/SetSize 均可安全调用。
+-- ⚠️ 每秒 ticker 高频调用：缓存按钮坐标，坐标未变则跳过 SetPoint/SetSize/子控件布局。
+local function PositionContainer(container, btn, p)
+    if not container or not btn then return false end
+    local left, bottom, width, height = btn:GetRect()
+    if not left then return false end
+    if p and p._rectL == left and p._rectB == bottom and p._rectW == width and p._rectH == height then
+        return true  -- 位置未变，跳过重设锚点/尺寸
+    end
+    local r = 1
+    local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if bs and ps and ps > 0 then r = bs / ps end
+    container:ClearAllPoints()
+    container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
+    container:SetSize(width * r, height * r)
+    if p then
+        p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
+        LayoutAuraChildren(p)
+    end
+    return true
 end
 
 -- initializeFrame 回调：暴雪创建 AuraButton 后，addon 注册子控件。
@@ -320,11 +328,10 @@ local function UpdatePresetAura(p)
         container:Hide()
         return
     end
-    if not PositionContainer(container, btn) then
+    if not PositionContainer(container, btn, p) then
         container:Hide()
         return
     end
-    LayoutAuraChildren(p)
     -- 容器保持可见以接收 UNIT_AURA（ShouldRegisterForDynamicEvents = IsVisible and IsEnabled）；
     -- AuraButton 的显隐由暴雪 ApplyVisibility 控制（有光环显示、无光环隐藏）
     container:Show()
