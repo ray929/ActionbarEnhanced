@@ -425,16 +425,24 @@ local function GetOverlay(p)
     return ov
 end
 
-local function PositionOverlay(ov, btn)
+-- 类型 B 覆盖层定位。overlay 是 addon 自建的普通 Frame，尺寸/位置完全由 addon 控制，
+-- 无暴雪异步覆盖 → 坐标未变即可完整跳过 SetPoint/SetSize（每秒 ticker 省去无谓锚点操作）。
+local function PositionOverlay(ov, btn, p)
     if not ov or not btn then return false end
     local left, bottom, width, height = btn:GetRect()
     if not left then return false end
+    if p and p._rectL == left and p._rectB == bottom and p._rectW == width and p._rectH == height then
+        return true  -- 位置未变，跳过重设
+    end
     local r = 1
     local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
     if bs and ps and ps > 0 then r = bs / ps end
     ov:ClearAllPoints()
     ov:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
     ov:SetSize(width * r, height * r)
+    if p then
+        p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
+    end
     return true
 end
 
@@ -449,7 +457,7 @@ local function UpdatePresetWeaponEnchant(p)
         return
     end
     local ov = GetOverlay(p)
-    if not PositionOverlay(ov, btn) then
+    if not PositionOverlay(ov, btn, p) then
         ov:Hide()
         return
     end
