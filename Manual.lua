@@ -133,6 +133,10 @@ end
 -- =========================================================
 local VIEWER_NAMES = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
 
+-- 「光环/增益」类 viewer：knownBuffs（手动配置光环列表）只收录这两个，排除主冷却/功能冷却技能，
+-- 避免"手动配置光环"混入"冷却高亮设置"里的冷却技能列表。
+local AURA_VIEWERS = { BuffIconCooldownViewer = true, BuffBarCooldownViewer = true }
+
 local function GetViewerFrames(viewer)
     if not viewer then return nil end
     if viewer.GetItemFrames then
@@ -190,7 +194,9 @@ local function ScanViewerFrames()
                 if ok and info then
                     local spellID = ResolveSpellID(info)
                     if spellID and not IsSecret(spellID) then
-                        RegisterBuff(spellID)
+                        if AURA_VIEWERS[viewerName] then
+                            RegisterBuff(spellID)
+                        end
                         BAR.cdIDBySpell[spellID] = cdID
                         -- 把 spellID 候选记到 frame 上（我们自己写的非 secret 字段），
                         -- 供 FindFrameForSpell 实时匹配——绝不读 secret 的 frame.auraSpellID。
@@ -288,7 +294,9 @@ local function EnsureHooks()
                         if ok and info then
                         local spellID = ResolveSpellID(info)
                         if spellID and not IsSecret(spellID) then
-                            RegisterBuff(spellID)
+                            if AURA_VIEWERS[name] then
+                                RegisterBuff(spellID)
+                            end
                             BAR.cdIDBySpell[spellID] = cdID
                             -- 记到 frame 上（非 secret 字段），供 FindFrameForSpell 实时匹配
                             f.__BARSpellID = spellID
