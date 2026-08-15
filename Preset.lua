@@ -65,8 +65,8 @@ local SELF_BUFFS = {
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 5401, actionSpellID = 33757, enchantName = "Windfury" },          -- 风怒武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 6498, actionSpellID = 382021, enchantName = "Earthliving Weapon" }, -- 大地生命武器
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" }, -- 唤潮者护卫
-    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL" },
     { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470057, unit = "target", filter = "HARMFUL" },
+    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL" },
     -- 盗贼 ROGUE（武器涂毒：光环 = 技能 同 ID）
     { class = "ROGUE", auraSpellID = 381664, actionSpellID = 381664 },  -- 增效毒药 Amplifying
     { class = "ROGUE", auraSpellID = 2823, actionSpellID = 2823 },      -- 致命毒药 Deadly
@@ -114,15 +114,15 @@ local ACTIVE_PRESETS = {}
 
 local function PresetKey(p)
     if p.presetType == "weaponEnchant" then
-        return "E" .. tostring(p.enchantID)
+        return "E" .. tostring(p.enchantID) .. "_" .. tostring(p.actionSpellID)
     end
     local id = p.auraSpellID
     if type(id) == "table" then
         local parts = {}
         for _, v in ipairs(id) do parts[#parts + 1] = tostring(v) end
-        return "A" .. table.concat(parts, ",")
+        return "A" .. table.concat(parts, ",") .. "_" .. tostring(p.actionSpellID)
     end
-    return "A" .. tostring(id)
+    return "A" .. tostring(id) .. "_" .. tostring(p.actionSpellID)
 end
 
 local function BuildActivePresets(classToken)
@@ -616,15 +616,18 @@ evFrame:SetScript("OnEvent", function(_, event)
         C_Timer.NewTicker(1, Tick)
     elseif actionbarEvents[event] then
         -- 动作条/页面/形态/载具/御龙术切换：清缓存 + 延迟重匹配。
-        -- 多次延迟重试，覆盖翻页/拖动的过渡态（按钮 action 未就绪/GetActionInfo 短暂返回旧值/GetRect 短暂为 nil 时，
-        -- 靠后续重试兜底），避免"切走能消失、切回不显示"。
-        for _, p in ipairs(ACTIVE_PRESETS) do
-            p.button = nil
-            p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
+        -- ⚠️ 每次重试都必须先清 p.button：否则第一次 RefreshAll 会把过渡态找到的按钮缓存进
+        --    p.button，后续重试因 `if not p.button` 跳过查找 → 旧按钮被固化，切回不显示/拖动不跟随。
+        local function invalidateButtons()
+            for _, p in ipairs(ACTIVE_PRESETS) do
+                p.button = nil
+                p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
+            end
         end
-        C_Timer.After(0.05, RefreshAll)
-        C_Timer.After(0.2, RefreshAll)
-        C_Timer.After(0.6, RefreshAll)
+        invalidateButtons()
+        RefreshAll()
+        C_Timer.After(0.1, function() invalidateButtons(); RefreshAll() end)
+        C_Timer.After(0.5, function() invalidateButtons(); RefreshAll() end)
     elseif event == "UNIT_AURA" then
         -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
         RefreshAll()

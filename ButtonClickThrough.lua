@@ -138,16 +138,24 @@ ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
-ev:SetScript("OnEvent", function()
-    MOD.EnsureDB()
-    -- ⚠️ 延迟到下一帧再重施：ACTIONBAR_PAGE_CHANGED 等事件可能在保护功能(SetActionBarPage)的
-    -- 同步调用栈内触发，此时 addon 直接调 RegisterStateDriver 会被判定 taint →
-    -- ADDON_ACTION_BLOCKED。用 C_Timer.After(0) 脱离保护上下文后再执行。
-    C_Timer.After(0, function()
+-- 防重入 + 延迟 0.1s：彻底脱离保护功能(SetActionBarPage)的调用栈后再重施，
+-- 避免 RegisterStateDriver 在保护上下文被 ADDON_ACTION_BLOCKED
+-- （C_Timer.After(0) 仍可能与事件同帧执行，不够安全）。
+local reapplyPending = false
+local function ScheduleReapply()
+    if reapplyPending then return end
+    reapplyPending = true
+    C_Timer.After(0.1, function()
+        reapplyPending = false
         for i = 1, 8 do
             if MOD.IsEnabled(i) then
                 ReapplySecure(i, true)
             end
         end
     end)
+end
+
+ev:SetScript("OnEvent", function()
+    MOD.EnsureDB()
+    ScheduleReapply()
 end)
