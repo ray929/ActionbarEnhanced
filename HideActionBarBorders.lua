@@ -5,6 +5,7 @@
 --       冷却扫光铺满整钮、隐藏施法/打断边框 → 图标呈纯方块、无外框。
 -- 开关存于 ActionbarEnhancedDB.hideBorders（默认开启）；改动需重载界面生效。
 -- 依赖二进制纹理：Resources/uiactionbar2x.tga（移植自原插件，提供方块覆盖层与悬停方槽）。
+-- 功能启用时同时给按钮加 1 像素黑色描边（紧贴按钮内缘，盖在放大图标之上）。
 
 ActionbarEnhanced = ActionbarEnhanced or {}
 local BAR = ActionbarEnhanced
@@ -83,6 +84,28 @@ local function EnlargeIcon(button)
     button:SetClipsChildren(true)
 end
 
+-- 功能启用时给按钮加 1 像素黑色描边：用 4 条 WHITE8X8 纹理紧贴按钮内缘，
+-- 层级 OVERLAY 保证盖在放大图标之上；幂等，按钮尺寸自适应。
+local function AddBlackBorder(button)
+    if button._AEBorderAdded then return end
+    button._AEBorderAdded = true
+    local tex = "Interface\\Buttons\\WHITE8X8"
+    local edges = {
+        { "TOPLEFT", "TOPRIGHT", "height" },
+        { "BOTTOMLEFT", "BOTTOMRIGHT", "height" },
+        { "TOPLEFT", "BOTTOMLEFT", "width" },
+        { "TOPRIGHT", "BOTTOMRIGHT", "width" },
+    }
+    for _, e in ipairs(edges) do
+        local t = button:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(tex)
+        t:SetVertexColor(0, 0, 0, 1)
+        t:SetPoint(e[1], button, e[1], 0, 0)
+        t:SetPoint(e[2], button, e[2], 0, 0)
+        if e[3] == "height" then t:SetHeight(1) else t:SetWidth(1) end
+    end
+end
+
 local function AdjustButtonOverlays(button)
     if button.cooldown then button.cooldown:SetAllPoints(button) end
     RemapTexture(button.HighlightTexture)
@@ -110,9 +133,11 @@ local function Setup()
             if button then
                 HideBorder(button)
                 EnlargeIcon(button)
+                AddBlackBorder(button)
                 button:HookScript("OnShow", function()
                     HideBorder(button)
                     EnlargeIcon(button)
+                    AddBlackBorder(button)
                 end)
                 AdjustButtonOverlays(button)
                 if button.NormalTexture then

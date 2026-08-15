@@ -12,7 +12,7 @@
 - 冷却高亮提醒（CooldownGlow）：CDM「主冷却」技能就绪后 ProcGlow 高亮，可配常亮 / 限时。
 - **预设光环（Preset.lua）**：追踪【CDM 未渲染】的光环与武器附魔——在 `Preset.lua` 的 `PRESETS` 表里加一行即可，无需改其他代码。光环类写 `auraSpellID`（光环 ID）+ `actionSpellID`（显示到哪个技能按钮），走 12.1 官方 **AuraContainer** 通道（容器按 `includeSpellIDs` 过滤，暴雪特权渲染倒计时/层数，插件零读取 → 战斗内照常显示）；武器附魔类写 `presetType="weaponEnchant"` + `enchantID` + `actionSpellID`（火舌 / 大地生命 / 唤潮护卫等）。
 - 按钮文字调整（ButtonText）：调整原生按键 / 层数 / 宏文本字号与描边。
-- 隐藏原生动作条边框（HideActionBarBorders）。
+- 隐藏原生动作条边框（HideActionBarBorders）：图标放大去边框并裁切溢出，启用时按钮加 1 像素黑色描边。
 - **动作条按钮变色（ButtonColor）**：CD 中 → 灰色；资源不足 → 蓝色；超出范围 → 红色（三态独立判定，全局开关默认开启）。
 - 配置 GUI 通过 Addon Compartment 打开（AceConfig 独立窗口）。战斗中无法打开配置，会自动延迟到脱离战斗后弹出。
 
