@@ -363,10 +363,15 @@ local function UpdatePresetAura(p)
     end
     local btn = p.button
     if not btn then
-        if Preset.debug then print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(FmtAuraID(p.auraSpellID), p.actionSpellID)) end
+        -- 只提示一次（找到后重置），避免 ticker/重试反复刷屏
+        if Preset.debug and not p._btnMissingLogged then
+            print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(FmtAuraID(p.auraSpellID), p.actionSpellID))
+            p._btnMissingLogged = true
+        end
         container:Hide()
         return
     end
+    p._btnMissingLogged = nil
     if not PositionContainer(container, btn, p) then
         container:Hide()
         return
