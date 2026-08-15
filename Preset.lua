@@ -206,24 +206,27 @@ end
 
 -- 把容器定位到动作按钮之上（屏幕坐标，绝不锚到按钮；含缩放换算）。
 -- 容器是 addon 创建的普通 Frame，SetPoint/SetSize 均可安全调用。
--- ⚠️ 每秒 ticker 高频调用：缓存按钮坐标，坐标未变则跳过 SetPoint/SetSize/子控件布局。
+-- ⚠️ 位置(SetPoint)可缓存；尺寸(SetSize)与子控件布局每次都要重做——
+--    AuraContainer 的 flow layout 会在光环变化时异步覆盖容器尺寸(OnLayoutComplete→SetSize)，
+--    若把 SetSize/子控件布局也缓存跳过，尺寸被覆盖后不再纠正 → 倒计时框错位。
 local function PositionContainer(container, btn, p)
     if not container or not btn then return false end
     local left, bottom, width, height = btn:GetRect()
     if not left then return false end
-    if p and p._rectL == left and p._rectB == bottom and p._rectW == width and p._rectH == height then
-        return true  -- 位置未变，跳过重设锚点/尺寸
-    end
     local r = 1
     local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
     if bs and ps and ps > 0 then r = bs / ps end
-    container:ClearAllPoints()
-    container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
-    container:SetSize(width * r, height * r)
-    if p then
-        p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
-        LayoutAuraChildren(p)
+    -- 仅位置变化时才重新 SetPoint（省 ClearAllPoints+SetPoint）
+    if not p or p._rectL ~= left or p._rectB ~= bottom or p._rectW ~= width or p._rectH ~= height then
+        container:ClearAllPoints()
+        container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
+        if p then
+            p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
+        end
     end
+    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖）
+    container:SetSize(width * r, height * r)
+    LayoutAuraChildren(p)
     return true
 end
 
