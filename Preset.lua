@@ -166,7 +166,10 @@ local function FindActionButtonForSpellName(name)
         if type(actionBar) == "string" then
             for i = 1, (NUM_ACTIONBAR_BUTTONS or 12) do
                 local btn = _G[actionBar .. i]
-                if btn then
+                -- 只匹配【可见】的按钮：MultiBarLeft/MultiBarRight 等左右动作条共享 action 槽位，
+                -- 同一技能会同时命中左右两个按钮，隐藏栏的按钮 GetActionInfo 也返回该技能，
+                -- 若不跳过隐藏按钮，会错误匹配到隐藏栏（导致"拖到右栏却显示在左栏/不显示"）。
+                if btn and btn:IsShown() then
                     -- 不判断 btn.action（对齐官方 GetActionButtonBySpellID），MultiBar 按钮
                     -- 的 action 可能为 nil/特殊，直接 GetActionInfo 更稳（nil 时返回 nil 安全跳过）
                     local _, actionSpellID = GetActionInfo(btn.action)
