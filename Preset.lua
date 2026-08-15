@@ -245,6 +245,10 @@ local function PositionContainer(container, btn, p)
     if bs and ps and ps > 0 then r = bs / ps end
     -- 仅位置变化时才重新 SetPoint（省 ClearAllPoints+SetPoint）
     if not p or p._rectL ~= left or p._rectB ~= bottom or p._rectW ~= width or p._rectH ~= height then
+        if Preset.debug and p then
+            local btnName = btn.GetName and btn:GetName() or "?"
+            print(("|cff33ccff[Preset]|r 光环%s → 按钮%s rect=(%.0f,%.0f,%.0f,%.0f) r=%.3f"):format(FmtAuraID(p.auraSpellID), tostring(btnName), left, bottom, width, height, r))
+        end
         container:ClearAllPoints()
         container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
         if p then
