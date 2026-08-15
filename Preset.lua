@@ -16,7 +16,7 @@
 --   · addon 只负责两件事：把容器定位到动作条按钮上方（屏幕坐标、零锚依赖），
 --     以及在 initializeFrame 回调里创建并注册子控件（必须 parent 到 AuraButton）。
 --   · 武器附魔走 item enchant 通道（非 unit aura），12.1 战斗中不受限，
---     保持自建 OnUpdate 驱动（与旧实现一致，用户实测正常）。
+--     自建 Cooldown 由 1 秒 ticker 刷新（不挂每帧 OnUpdate）。
 --
 -- 用法：SELF_BUFFS 按当前职业自动启用；额外预设写 PRESETS；无需改其他代码。
 
@@ -88,7 +88,10 @@ local SELF_BUFFS = {
     { class = "PRIEST", auraSpellID = 10060, actionSpellID = 10060 },    -- 能量灌注
     { class = "PRIEST", auraSpellID = 19236, actionSpellID = 19236 },    -- 绝望祷言
     { class = "PRIEST", auraSpellID = 17, actionSpellID = 17 },    -- 真言术盾
-    { class = "PRIEST", auraSpellID = 121557, actionSpellID = 121536 },    -- 羽毛
+    { class = "PRIEST",  auraSpellID = 121557,                                                                                                     actionSpellID = 121536 }, -- 羽毛
+    { class = "PRIEST", auraSpellID = 589, actionSpellID = 589, unit = "target", filter = "HARMFUL" }, -- 暗影术痛
+
+
     -- 圣骑士 PALADIN（武器仪式）
     { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7144, actionSpellID = 433583 }, -- 裁决仪式（buff 433584）
     { class = "PALADIN", presetType = "weaponEnchant", enchantID = 7143, actionSpellID = 433568 }, -- 圣化仪式（buff 433550）
@@ -357,16 +360,15 @@ local function GetWeaponEnchantExpiration(enchantID, enchantName)
     return nil
 end
 
--- 武器附魔倒计时逐帧驱动：GetWeaponEnchantInfo 是【非 aura 通道】，战斗中也能安全读取；
--- 用覆盖层 OnUpdate 每帧重算剩余时间并刷新 Cooldown（start=now、duration=剩余秒 →
--- 绝对结束时刻恒定，数字逐帧递减）。帧脚本在战斗中照常运行，彻底解决「战斗中倒计时卡住/不更新」。
+-- 武器附魔倒计时【每秒】驱动：GetWeaponEnchantInfo 是【非 aura 通道】，战斗中也能安全读取。
+-- 由 1 秒 ticker（Tick → RefreshWeaponEnchants）调用，每秒重算剩余时间并刷新 Cooldown
+-- （start=now、duration=剩余秒）。不再挂每帧 OnUpdate——降频省 CPU，1 秒精度对武器附魔足够。
 local function EnchantTick(ov)
     local p = ov._preset
-    if not p then ov:SetScript("OnUpdate", nil); return end
+    if not p then return end
     local expSec = GetWeaponEnchantExpiration(p.enchantID, p.enchantName)
     if not expSec or expSec <= 0 then
         ov:Hide()
-        ov:SetScript("OnUpdate", nil)
         ov._active = false
         return
     end
@@ -439,16 +441,14 @@ local function UpdatePresetWeaponEnchant(p)
     local ov = GetOverlay(p)
     if not PositionOverlay(ov, btn) then
         ov:Hide()
-        ov:SetScript("OnUpdate", nil)
         return
     end
-    -- 武器附魔走非 aura 通道，战斗安全：挂 OnUpdate 每帧刷新（即使此刻正处于战斗）
+    -- 武器附魔走非 aura 通道，战斗安全：由 1 秒 ticker 刷新（即使此刻正处于战斗）
     ov._preset = p
-    ov:SetScript("OnUpdate", EnchantTick)
-    EnchantTick(ov)   -- 立即填充一次
+    EnchantTick(ov)   -- 立即填充一次（之后由 Tick → RefreshWeaponEnchants 每秒刷新）
 end
 
--- 武器附魔非 unit aura → 战斗中也能检测；用低频 ticker 清理到期/重附魔（不读 aura，零 taint）
+-- 武器附魔非 unit aura → 战斗中也能检测；由 1 秒 ticker 刷新剩余时间（不读 aura，零 taint）
 local function RefreshWeaponEnchants()
     for _, p in ipairs(ACTIVE_PRESETS) do
         if p.presetType == "weaponEnchant" then
