@@ -268,7 +268,7 @@ local options = {
                 },
                 hideBorders = {
                     type = "toggle",
-                    name = "隐藏原生动作条边框",
+                    name = "隐藏原生动作条边框并放大图标",
                     order = 7,
                     width = "full",
                     get = function() return BAR.HideBorders and BAR.HideBorders.IsEnabled() end,
