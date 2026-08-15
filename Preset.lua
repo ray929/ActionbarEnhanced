@@ -599,6 +599,16 @@ evFrame:SetScript("OnEvent", function(_, event)
                 pcall(function() p.container:UpdateAllAuras() end)
             end
         end
+        -- UpdateAllAuras 触发 FullAuraRebuild，flow layout 会在下一帧把容器尺寸覆盖成空布局值
+        -- （ApplyFlowLayout 无条件 OnLayoutComplete→SetSize）。延迟一小段后重新定位，
+        -- 避免倒计时框短暂错位（否则要等 1 秒 ticker 才纠正）。
+        C_Timer.After(0.05, function()
+            for _, p in ipairs(ACTIVE_PRESETS) do
+                if p.presetType ~= "weaponEnchant" and p.unit == "target" then
+                    pcall(UpdatePresetAura, p)
+                end
+            end
+        end)
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- 脱战：解除战斗中建容器失败的限制，重试创建并刷新
         for _, p in ipairs(ACTIVE_PRESETS) do p._initFailed = nil end
