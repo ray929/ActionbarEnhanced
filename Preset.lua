@@ -346,6 +346,10 @@ end
 
 local function UpdatePresetAura(p)
     if not p.auraSpellID or not p.actionSpellID then return end
+    -- 玩家没学该施放技能（如元素萨满没学水之护盾/闪电之盾）→ 跳过，不追踪不刷屏
+    if not IsPlayerSpell(p.actionSpellID) then
+        return
+    end
     if not InitAuraPreset(p) then return end
     local container = p.container
 
