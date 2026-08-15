@@ -1,8 +1,11 @@
 ## Interface: 120100
 ## Title: Actionbar Enhanced
-## Notes: 将 CDM（暴雪冷却/增益查看器）中显示的玩家增益信息（冷却时间/层数）覆盖到原生动作条按钮上。
+## Notes: Show cooldown/buff timers and stacks on your action bar buttons.
+## Notes-zhCN: 将冷却/增益的时间与层数显示在动作条按钮上。
 ## Author: ray929
 ## Version: 0.1.0
+## X-Category: Action Bars
+## X-Category-zhCN: 动作条
 ## SavedVariablesPerCharacter: ActionbarEnhancedDB
 ## DefaultState: enabled
 ## IconTexture: Interface\Icons\Achievement_LegionPVPTier1
