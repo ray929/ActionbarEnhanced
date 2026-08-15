@@ -67,6 +67,15 @@ local function HideBorder(button)
     end
 end
 
+-- 图标素材放大 1.2 倍：暴雪自带图标四周有一圈边框，放大图标纹理使边框超出按钮边界、
+-- 视觉上被"隐藏"。⚠️ 用 SetScale 只放大图标纹理本身，不改变按钮尺寸/位置、不碰其他控件。
+local ICON_SCALE = 1.2
+local function EnlargeIcon(button)
+    if button.icon then
+        button.icon:SetScale(ICON_SCALE)
+    end
+end
+
 local function AdjustButtonOverlays(button)
     if button.cooldown then button.cooldown:SetAllPoints(button) end
     RemapTexture(button.HighlightTexture)
@@ -93,7 +102,11 @@ local function Setup()
             local button = _G[key]
             if button then
                 HideBorder(button)
-                button:HookScript("OnShow", HideBorder)
+                EnlargeIcon(button)
+                button:HookScript("OnShow", function()
+                    HideBorder(button)
+                    EnlargeIcon(button)
+                end)
                 AdjustButtonOverlays(button)
                 if button.NormalTexture then
                     button.NormalTexture:HookScript("OnShow", HideSelf)
