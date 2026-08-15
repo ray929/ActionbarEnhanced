@@ -162,7 +162,6 @@ end
 local function FindActionButtonForSpellName(name)
     if not name then return end
     local barNames = (ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames) or {}
-    local dbg = Preset.debug and {} or nil   -- 诊断：收集候选按钮信息
     for _, actionBar in ipairs(barNames) do
         if type(actionBar) == "string" then
             for i = 1, (NUM_ACTIONBAR_BUTTONS or 12) do
@@ -178,16 +177,11 @@ local function FindActionButtonForSpellName(name)
                         local actionSpellName = C_Spell.GetSpellName(actionSpellID)
                         if name == actionSpellName then
                             return btn
-                        elseif dbg then
-                            dbg[#dbg + 1] = ("%s%d=%s(%s)"):format(actionBar, i, tostring(actionSpellName), tostring(actionSpellID))
                         end
                     end
                 end
             end
         end
-    end
-    if dbg and #dbg > 0 then
-        print(("|cff33ccff[Preset]|r 查找[%s]未命中，候选按钮: %s"):format(name, table.concat(dbg, ", ")))
     end
     for i = 1, (NUM_SPECIAL_BUTTONS or 10) do
         local stanceBtn = StanceBar and StanceBar.actionButtons and StanceBar.actionButtons[i]
