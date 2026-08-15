@@ -70,7 +70,7 @@ end
 -- 图标素材放大 1.2 倍：暴雪自带图标四周有一圈边框，放大图标纹理使边框超出按钮边界。
 -- 同时用【方块蒙版】裁切溢出部分（按钮大小），否则图标溢出可见、视觉上像"按钮变大"。
 -- 只放大图标纹理 + 裁切，不改变按钮尺寸/位置/点击范围。
-local ICON_SCALE = 1.2
+local ICON_SCALE = 1.15
 local function EnlargeIcon(button)
     local icon = button.icon
     if not icon then return end
