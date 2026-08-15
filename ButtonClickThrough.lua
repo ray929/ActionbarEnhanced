@@ -71,6 +71,15 @@ local function BuildHandler(i)
     return h
 end
 
+-- 登录时预建所有 8 个 handler：SetFrameRef 把受保护动作条帧引用给 SecureHandler，属保护操作，
+-- 必须在非保护上下文（登录时）一次性完成。若懒加载，首次 ReapplySecure 会在翻页/战斗事件链里
+-- 触发 SetFrameRef → ADDON_ACTION_BLOCKED。
+local function PreBuildAll()
+    for i = 1, 8 do
+        BuildHandler(i)
+    end
+end
+
 -- 在安全环境应用某栏（on=true 穿透）。RegisterStateDriver 重注册不同表达式会在安全环境触发 _onstate-ct。
 local function ApplySecure(i, on)
     local h = BuildHandler(i)
@@ -147,6 +156,9 @@ local function ScheduleReapply()
     reapplyPending = true
     C_Timer.After(0.1, function()
         reapplyPending = false
+        -- 战斗中跳过（RegisterStateDriver 属保护功能，combat lockdown 下会 block），
+        -- 脱离战斗后 PLAYER_REGEN_ENABLED 会重新触发重施。
+        if InCombatLockdown() then return end
         for i = 1, 8 do
             if MOD.IsEnabled(i) then
                 ReapplySecure(i, true)
@@ -155,7 +167,10 @@ local function ScheduleReapply()
     end)
 end
 
-ev:SetScript("OnEvent", function()
+ev:SetScript("OnEvent", function(_, event)
     MOD.EnsureDB()
+    if event == "PLAYER_LOGIN" then
+        PreBuildAll()   -- 登录时预建 handler（SetFrameRef 一次性在非保护上下文完成）
+    end
     ScheduleReapply()
 end)

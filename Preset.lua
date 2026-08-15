@@ -616,8 +616,9 @@ evFrame:SetScript("OnEvent", function(_, event)
         C_Timer.NewTicker(1, Tick)
     elseif actionbarEvents[event] then
         -- 动作条/页面/形态/载具/御龙术切换：清缓存 + 延迟重匹配。
-        -- ⚠️ 每次重试都必须先清 p.button：否则第一次 RefreshAll 会把过渡态找到的按钮缓存进
-        --    p.button，后续重试因 `if not p.button` 跳过查找 → 旧按钮被固化，切回不显示/拖动不跟随。
+        -- ⚠️ 绝不【立即】RefreshAll：ACTIONBAR_PAGE_CHANGED 等事件在 SetActionBarPage 的保护上下文
+        --    同步触发，立即操作容器(SetPoint/SetSize)会被 taint/block，导致倒计时框错位/变色/变大小。
+        --    改为延迟重试，且每次重试前都清 p.button（否则第一次会把过渡态按钮缓存进 p.button 固化）。
         local function invalidateButtons()
             for _, p in ipairs(ACTIVE_PRESETS) do
                 p.button = nil
@@ -625,7 +626,6 @@ evFrame:SetScript("OnEvent", function(_, event)
             end
         end
         invalidateButtons()
-        RefreshAll()
         C_Timer.After(0.1, function() invalidateButtons(); RefreshAll() end)
         C_Timer.After(0.5, function() invalidateButtons(); RefreshAll() end)
     elseif event == "UNIT_AURA" then
