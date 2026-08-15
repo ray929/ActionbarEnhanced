@@ -162,11 +162,14 @@ end
 local function FindActionButtonForSpellName(name)
     if not name then return end
     local barNames = (ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames) or {}
+    local dbg = Preset.debug and {} or nil   -- 诊断：收集候选按钮信息
     for _, actionBar in ipairs(barNames) do
         if type(actionBar) == "string" then
             for i = 1, (NUM_ACTIONBAR_BUTTONS or 12) do
                 local btn = _G[actionBar .. i]
-                if btn and btn.action then
+                if btn then
+                    -- 不判断 btn.action（对齐官方 GetActionButtonBySpellID），MultiBar 按钮
+                    -- 的 action 可能为 nil/特殊，直接 GetActionInfo 更稳（nil 时返回 nil 安全跳过）
                     local _, actionSpellID = GetActionInfo(btn.action)
                     if actionSpellID then
                         -- 直接 GetSpellName(actionSpellID)，【不要】GetBaseSpell 重定向：
@@ -175,11 +178,16 @@ local function FindActionButtonForSpellName(name)
                         local actionSpellName = C_Spell.GetSpellName(actionSpellID)
                         if name == actionSpellName then
                             return btn
+                        elseif dbg then
+                            dbg[#dbg + 1] = ("%s%d=%s(%s)"):format(actionBar, i, tostring(actionSpellName), tostring(actionSpellID))
                         end
                     end
                 end
             end
         end
+    end
+    if dbg and #dbg > 0 then
+        print(("|cff33ccff[Preset]|r 查找[%s]未命中，候选按钮: %s"):format(name, table.concat(dbg, ", ")))
     end
     for i = 1, (NUM_SPECIAL_BUTTONS or 10) do
         local stanceBtn = StanceBar and StanceBar.actionButtons and StanceBar.actionButtons[i]
