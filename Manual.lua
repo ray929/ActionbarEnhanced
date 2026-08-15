@@ -139,10 +139,10 @@ local AURA_VIEWERS = { BuffIconCooldownViewer = true, BuffBarCooldownViewer = tr
 
 local function GetViewerFrames(viewer)
     if not viewer then return nil end
-    if viewer.GetItemFrames then
-        local ok, frames = pcall(viewer.GetItemFrames, viewer)
-        if ok and frames then return frames end
-    end
+    -- ⚠️ 优先 itemFramePool:EnumerateActive（= 正在显示的 active 帧，稳定正确）。
+    --   GetItemFrames 返回的是 itemContainerFrame:GetLayoutChildren()（布局子帧），
+    --   拖动 CDM 触发 RefreshLayout→ReleaseAll 时它会瞬间变空/不全，导致 knownBuffs 乱跳/清空；
+    --   且含池化隐藏帧，会混入非 active 条目。故只在无 EnumerateActive 时兜底 GetItemFrames。
     if viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
         local ok, iter = pcall(viewer.itemFramePool.EnumerateActive, viewer.itemFramePool)
         if ok and iter then
@@ -150,6 +150,10 @@ local function GetViewerFrames(viewer)
             for f in iter do t[#t + 1] = f end
             return t
         end
+    end
+    if viewer.GetItemFrames then
+        local ok, frames = pcall(viewer.GetItemFrames, viewer)
+        if ok and frames then return frames end
     end
     return nil
 end
