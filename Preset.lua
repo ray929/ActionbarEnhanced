@@ -232,7 +232,14 @@ end
 local function PositionContainer(container, btn, p)
     if not container or not btn then return false end
     local left, bottom, width, height = btn:GetRect()
-    if not left then return false end
+    if not left then
+        if Preset.debug and p then
+            local btnName = btn.GetName and btn:GetName() or "?"
+            local okShown, shown = pcall(function() return btn:IsShown() end)
+            print(("|cff33ccff[Preset]|r 光环%s → 按钮%s 定位失败(GetRect=nil, IsShown=%s)"):format(FmtAuraID(p.auraSpellID), tostring(btnName), tostring(okShown and shown)))
+        end
+        return false
+    end
     local r = 1
     local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
     if bs and ps and ps > 0 then r = bs / ps end
