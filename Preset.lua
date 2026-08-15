@@ -469,6 +469,10 @@ end
 
 local function UpdatePresetWeaponEnchant(p)
     if not p.enchantID or not p.actionSpellID then return end
+    -- 玩家没学该施放技能（如元素萨满没学风怒/大地生命/唤潮护卫）→ 跳过，不追踪不刷屏
+    if not IsPlayerSpell(p.actionSpellID) then
+        return
+    end
     if not p.button then
         p.button = FindActionButtonForSpellName(C_Spell.GetSpellName(p.actionSpellID))
     end
