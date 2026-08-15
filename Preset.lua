@@ -109,6 +109,10 @@ local SELF_BUFFS = {
 local PRESETS = {
     -- { auraSpellID = 123456, actionSpellID = 123, unit = "player", filter = "HELPFUL" },
     -- { presetType = "weaponEnchant", enchantID = 5400, actionSpellID = 318038 },
+    -- 种族技能（与职业无关，如矮人石像形态）也写这里、不设 class：
+    -- 运行时 UpdatePresetAura 的 IsPlayerSpell(20594) 会自动过滤——只有会该技能的种族才生效，
+    -- 其余种族返回 false 直接跳过，不会误建容器/刷屏。
+    { auraSpellID = 65116, actionSpellID = 20594 }, -- 石像形态（光环 65116 → 技能 20594，矮人种族）
 }
 
 -- 运行时生效的预设 = PRESETS(手动) + 按当前职业过滤的 SELF_BUFFS(自动)，去重
