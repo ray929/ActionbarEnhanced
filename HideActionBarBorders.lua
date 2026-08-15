@@ -79,16 +79,8 @@ local function EnlargeIcon(button)
     icon:ClearAllPoints()
     icon:SetPoint("CENTER", button, "CENTER", 0, 0)
     icon:SetSize(bw * ICON_SCALE, bh * ICON_SCALE)
-    -- 方块蒙版：纯白方块(按钮大小)裁剪图标，溢出部分透明
-    if not button.__BarSquareMask then
-        pcall(function()
-            local mask = button:CreateMaskTexture(nil, "ARTWORK")
-            mask:SetAllPoints(button)
-            mask:SetTexture("Interface\\Buttons\\WHITE8x8")
-            icon:AddMaskTexture(mask)
-            button.__BarSquareMask = mask
-        end)
-    end
+    -- 裁切子帧到按钮边界：放大后的图标溢出部分被裁掉，按钮视觉尺寸/点击范围不变
+    button:SetClipsChildren(true)
 end
 
 local function AdjustButtonOverlays(button)
