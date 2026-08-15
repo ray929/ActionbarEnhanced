@@ -169,8 +169,10 @@ local function FindActionButtonForSpellName(name)
                 if btn and btn.action then
                     local _, actionSpellID = GetActionInfo(btn.action)
                     if actionSpellID then
-                        local baseSpellID = C_Spell.GetBaseSpell(actionSpellID)
-                        local actionSpellName = C_Spell.GetSpellName(baseSpellID)
+                        -- 直接 GetSpellName(actionSpellID)，【不要】GetBaseSpell 重定向：
+                        -- GetBaseSpell 会把部分法术重定向成异名基础法术，导致名字匹配失败
+                        -- （AutoCDM 的 63cafe4 已踩过此坑，见其"去掉 GetBaseSpell 重定向"）。
+                        local actionSpellName = C_Spell.GetSpellName(actionSpellID)
                         if name == actionSpellName then
                             return btn
                         end
@@ -614,9 +616,15 @@ evFrame:SetScript("OnEvent", function(_, event)
         C_Timer.NewTicker(1, Tick)
     elseif actionbarEvents[event] then
         -- 动作条/页面/形态/载具/御龙术切换：清缓存 + 延迟重匹配。
-        -- 延迟 0.1s 等动作条布局完成再读坐标/重算匹配，避免切换瞬间取到旧状态（对齐 Manual）。
-        for _, p in ipairs(ACTIVE_PRESETS) do p.button = nil end
-        C_Timer.After(0.1, RefreshAll)
+        -- 多次延迟重试，覆盖翻页/拖动的过渡态（按钮 action 未就绪/GetActionInfo 短暂返回旧值/GetRect 短暂为 nil 时，
+        -- 靠后续重试兜底），避免"切走能消失、切回不显示"。
+        for _, p in ipairs(ACTIVE_PRESETS) do
+            p.button = nil
+            p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
+        end
+        C_Timer.After(0.05, RefreshAll)
+        C_Timer.After(0.2, RefreshAll)
+        C_Timer.After(0.6, RefreshAll)
     elseif event == "UNIT_AURA" then
         -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
         RefreshAll()
