@@ -1,10 +1,10 @@
 -- ActionbarEnhanced/MinimapButton.lua
 -- 小地图快捷按钮：基于 LibDataBroker-1.1 + LibDBIcon-1.0（参考 DFCN_DelveHelper 的实现）。
---   · 左键点击 → 打开设置面板（复用 Options.OpenConfig，自动处理战斗中延迟打开）
+--   · 左键点击 → 切换打开/关闭设置面板（Options.ToggleConfig）
 --   · 左键拖动 → 绕小地图边缘移动，位置存档（LibDBIcon 内置，角度存 db.minimapPos）
---   · 右键点击 → 锁定/解锁位置（LibDBIcon 的 Lock/Unlock，db.lock 存档）
+--   · 右键点击 → 打开系统自带 CDM（冷却管理器）
 -- 显隐由 Options「基本配置」开关控制（ActionbarEnhancedDB.minimap.enabled，默认开启）。
--- 拖动/锁定/位置存盘全部交给 LibDBIcon，自实现极简、无自写拖动逻辑。
+-- 拖动/位置存盘交给 LibDBIcon，自实现极简、无自写拖动逻辑。
 
 local BAR = ActionbarEnhanced
 if not BAR then return end
@@ -37,23 +37,18 @@ local function CreateLDBObject()
         icon = iconPath,
         OnClick = function(_, button)
             if button == "LeftButton" then
-                if BAR.OpenConfig then BAR.OpenConfig() end
+                -- 左键：切换打开/关闭设置面板
+                if BAR.ToggleConfig then BAR.ToggleConfig() end
             elseif button == "RightButton" then
-                -- 右键锁定/解锁位置
-                if mm.lock then
-                    LibDBIcon:Unlock(addonName)
-                    print(("|cff33ccff[ActionbarEnhanced]|r 小地图按钮位置已%s"):format("解锁"))
-                else
-                    LibDBIcon:Lock(addonName)
-                    print(("|cff33ccff[ActionbarEnhanced]|r 小地图按钮位置已%s"):format("锁定"))
-                end
+                -- 右键：打开系统自带 CDM（冷却管理器）
+                OpenCooldownManager()
             end
         end,
         OnTooltipShow = function(tt)
             tt:AddLine(addonName, 1, 1, 1)
-            tt:AddLine("左键：打开设置", 1, 1, 1)
+            tt:AddLine("左键：打开/关闭设置", 1, 1, 1)
+            tt:AddLine("右键：打开系统 CDM", 0.8, 0.8, 0.8)
             tt:AddLine("拖动：移动位置", 0.8, 0.8, 0.8)
-            tt:AddLine(("右键：%s位置"):format(mm.lock and "解锁" or "锁定"), 0.8, 0.8, 0.8)
         end,
     })
 end

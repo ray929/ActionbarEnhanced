@@ -530,6 +530,21 @@ local function OpenConfig()
     DoOpen()
 end
 
+-- 切换打开/关闭（小地图按钮左键用）：已打开则关闭，未打开则打开
+local function ToggleConfig()
+    if InCombatLockdown() then
+        print("|cffff6666[ActionbarEnhanced]|r 战斗中无法配置，脱离战斗后将自动打开设置界面。")
+        pendingOpen = true
+        return
+    end
+    if IsConfigOpen() then
+        AceConfigDialog:Close("ActionbarEnhanced")
+    else
+        pendingOpen = false
+        DoOpen()
+    end
+end
+
 -- 战斗状态监听：脱离战斗后兑现「延迟打开」；进入战斗时若界面开着则先关掉。
 local combatFrame = CreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -569,6 +584,7 @@ AddonCompartmentFrame:RegisterAddon({
 
 -- 暴露给外部入口（小地图按钮等）：左键打开设置，自动处理战斗中延迟打开
 BAR.OpenConfig = OpenConfig
+BAR.ToggleConfig = ToggleConfig   -- 切换打开/关闭（小地图按钮左键用）
 
 -- 自动刷新：检测「CDM 活动帧集合」或「专精」变化，任一变化即重扫 knownBuffs 并重绘。
 --   ⚠️ 不能用 knownBuffs 自身数量做比较——它只在 Rescan/OnAcquireItemFrame 时更新，
