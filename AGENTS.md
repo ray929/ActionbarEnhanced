@@ -82,7 +82,7 @@
 
 ### 发布打包（GitHub → CurseForge 自动打包）
 
-- 根目录 `pkgmeta.yaml` 是 CurseForge 打包配置：`package-as: ActionbarEnhanced`；ignore 了 `docs/`、`AGENTS.md`、`Libs/LibStub/tests` 及 **4 个未被代码引用的 ttf 字体**（Settings.lua 用暴雪标准字体，仅 `uiactionbar2x.tga` 被引用）。⚠️ 若日后代码改用自定义字体（`S.FONT` 指向 Resources/*.ttf），必须同步删掉 pkgmeta 里对应的 ignore 条目，否则用户装包后字体缺失。
+- 根目录 `pkgmeta.yaml` 是 CurseForge 打包配置：`package-as: ActionbarEnhanced`；ignore 了 `docs/`、`AGENTS.md`、`Libs/LibStub/tests`。Resources/ 只保留被引用的 `uiactionbar2x.tga`（4 个未引用字体约 42MB 已于 2026-08-16 删除）。⚠️ 若日后新增资源文件（自定义字体等），记得确认被代码引用且无需加 ignore。
 - `.toc` 的 `## Version: @project-version@` 是打包替换令牌：CurseForge 打包时替换为 tag 名（本地开发时游戏内显示字面量 `@project-version@` 属正常现象）。**发版流程：改完 → 提交 → 打 tag（如 `v1.0.0`）→ push（含 tag）**。tag 含 `alpha` → Alpha 文件；含 `beta` → Beta；其他 → Release；未打 tag 的 commit 打包为 Alpha。
 - Libs/ 库直接提交（本仓库即游戏目录，externals 只在 CF 服务端生效无法满足本地运行），故 `enable-nolib-creation: no`、不声明 externals。
 - GitHub webhook 需用户手动配置一次：CF 账户生成 API token → 仓库 Settings → Webhooks → URL 填 `https://www.curseforge.com/api/projects/{projectID}/package?token={token}`。

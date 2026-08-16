@@ -17,11 +17,5 @@ ignore:
   # 开发文档（非插件运行文件）
   - docs
   - AGENTS.md
-  # 未被代码引用的字体（Settings.lua 用暴雪标准字体；仅 uiactionbar2x.tga 被引用）。
-  # ⚠️ 若日后 Settings.lua 改用自定义字体，必须同步删除此处对应条目
-  - Resources/font.ttf
-  - Resources/仓耳阳体.ttf
-  - Resources/原神.ttf
-  - Resources/腾祥沁圆W3.ttf
   # 第三方库自带的测试文件
   - Libs/LibStub/tests
