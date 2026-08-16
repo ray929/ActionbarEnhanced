@@ -68,6 +68,7 @@ local STANDARD_BARS = {
     "MultiBarLeftButton",
     "MultiBar5Button",
     "MultiBar6Button",
+    "MultiBar7Button",
     "StanceButton",
     "PetActionButton",
     "PossessButton",
