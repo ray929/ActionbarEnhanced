@@ -720,15 +720,15 @@ local S = BAR.Settings
 local overlays = {}
 
 -- =========================================================
--- 发光（glow）辅助：timePos=="发光"（有光环亮）/"反发光"（无光环亮）时给按钮 Proc Glow
+-- 发光（glow）辅助：timePos=="发光"（有光环亮，青色）/"反发光"（无光环亮，紫色）时给按钮 Proc Glow
 -- 发光靠项目已加载的 LibCustomGlow-1.0（与 CooldownGlow 的 "BAR" / TrinketGlow 的 "TG" 区分用独立 key）
 -- =========================================================
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
 local MANUAL_GLOW_KEY = "MANUALGLOW"
 
-local function ManualGlowStart(btn)
+local function ManualGlowStart(btn, color)
     if not btn or not LCG or btn.__ManualGlow then return end
-    LCG.ProcGlow_Start(btn, { key = MANUAL_GLOW_KEY, startAnim = true, color = S.MANUAL_GLOW_COLOR, scale = 0.8 })
+    LCG.ProcGlow_Start(btn, { key = MANUAL_GLOW_KEY, startAnim = true, color = color or S.MANUAL_GLOW_COLOR, scale = 0.8 })
     btn.__ManualGlow = true
 end
 
@@ -814,11 +814,11 @@ local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, sp
         local inverseGlowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "反发光")
 
         -- 光环不激活（item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置。
-        -- 反发光模式例外：此时（无光环）按钮要点亮。
+        -- 反发光模式例外：此时（无光环）按钮要点亮（紫色，与「发光」青色区分）。
         if not IsItemShown(frame) then
             container:Hide()
             if inverseGlowMode then
-                ManualGlowStart(button)
+                ManualGlowStart(button, S.MANUAL_INVERSE_GLOW_COLOR)
             else
                 ManualGlowStop(button)
             end
