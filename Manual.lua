@@ -720,7 +720,7 @@ local S = BAR.Settings
 local overlays = {}
 
 -- =========================================================
--- 发光（glow）辅助：timePos=="发光" 时给按钮 Proc Glow
+-- 发光（glow）辅助：timePos=="发光"（有光环亮）/"反发光"（无光环亮）时给按钮 Proc Glow
 -- 发光靠项目已加载的 LibCustomGlow-1.0（与 CooldownGlow 的 "BAR" / TrinketGlow 的 "TG" 区分用独立 key）
 -- =========================================================
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
@@ -810,10 +810,18 @@ local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, sp
         local showTimeAllowed = (showTimeOpt ~= false)
         local showStackAllowed = (showStackOpt ~= false)
 
-        -- 光环不激活（item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置
+        -- 反发光模式判定（timePos=="反发光"）：与「发光」镜像——无光环时发光、有光环时熄灭
+        local inverseGlowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "反发光")
+
+        -- 光环不激活（item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置。
+        -- 反发光模式例外：此时（无光环）按钮要点亮。
         if not IsItemShown(frame) then
             container:Hide()
-            ManualGlowStop(button)
+            if inverseGlowMode then
+                ManualGlowStart(button)
+            else
+                ManualGlowStop(button)
+            end
             pcall(function()
                 if frame.__BAROrigParent then
                     frame:SetParent(frame.__BAROrigParent)
@@ -831,6 +839,14 @@ local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, sp
         -- 从 CDM item 拿暴雪已渲染对象
         local cdFrame = frame.GetCooldownFrame and frame:GetCooldownFrame()
         local stacksFS = frame.GetApplicationsFontString and frame:GetApplicationsFontString()
+
+        -- 反发光模式（timePos=="反发光"）：光环激活 → 熄灭、不显示时间/层数（与发光模式镜像）
+        if inverseGlowMode then
+            container:Hide()
+            ManualGlowStop(button)
+            MoveItemOffscreen(frame)
+            return
+        end
 
         -- 发光模式判定（timePos=="发光"）：光环激活则发光、隐藏时间；否则熄灭。
         local glowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "发光")
