@@ -74,6 +74,7 @@
 
 ## 8. 工程规范（Windows 环境专项）
 
+- **分支策略：仅用 main，不建 dev**（用户指定 2026-08-16）。每轮修改直接提交到 main；无远程仓库，不 push。
 - **仓库换行是 LF**！Windows 编辑器（含部分 AI 写入路径）会把整库转成 CRLF → 61 个文件全量 diff churn（已实际踩坑）。提交前对改动的文本文件执行 `sed -i 's/\r$//' <files>` 规范回 LF。
 - 命令经 MSYS2 bash：`D:/msys64/usr/bin/bash.exe -lc "..."`，路径用正斜杠；`git log/diff` 加 `--no-pager`。
 - 临时文件放 `.temp/`（gitignore）；不引入新外部依赖库除非用户同意。
