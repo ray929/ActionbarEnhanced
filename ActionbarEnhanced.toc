@@ -1,7 +1,7 @@
 ## Interface: 120100
 ## Title: Actionbar Enhanced
-## Notes: Show cooldown/buff timers and stacks on your action bar buttons.
-## Notes-zhCN: 将冷却/增益的时间与层数显示在动作条按钮上。
+## Notes: All-in-one native action bar enhancements: buff/cooldown timers & stacks on buttons, ready glows, button state coloring, text scaling and bar cleanups.
+## Notes-zhCN: 原生动作条一站式增强：按钮显示增益/冷却倒计时与层数、就绪发光提醒、按钮状态变色、文字调整与外观清理。
 ## Author: ray929
 ## Version: 0.1.0
 ## X-Category: Action Bars

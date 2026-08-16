@@ -1,63 +1,88 @@
 # Actionbar Enhanced
 
-> Move buff information shown by Blizzard's built-in Cooldown Manager (CDM) onto your native action bar buttons — for World of Warcraft retail 12.1.
-
-将暴雪自带 CDM（冷却/增益查看器）中显示的【玩家自身增益】信息，覆盖到原生动作条按钮上（正式服 12.1）。
+> An all-in-one enhancement suite for World of Warcraft's **native** action bars. No bar replacement, no repositioning — your bars stay 100% Blizzard-native, just way more readable.
+>
+> 一站式增强魔兽世界【原生动作条】的功能合集。不替换、不重排动作条——你的动作条保持 100% 暴雪原生，只是变得好用得多。
 
 ## Features / 功能
 
-- 把暴雪 CDM 中显示的玩家自身增益（剩余时间 / 层数）覆盖到原生动作条按钮上（combat-safe，不扫单位光环，挂 UIParent 容器）。
-- 手动绑定：按 spellID 绑定，支持专精级配置（时间 / 层数位置；时间位置可选「发光」——光环激活时按钮 ProcGlow 高亮、不显示时间，层数照常；或「反发光」——无光环时按钮紫色高亮、有光环时熄灭，与「发光」的青色区分）。
-- 自动发现（AutoCDM）：移植 CDMButtonAuras，自动把 CDM 启用的增益铺到动作条。
-- 冷却高亮提醒（CooldownGlow）：CDM「主冷却」技能就绪后 ProcGlow 高亮，可配常亮 / 限时。
-- **预设光环（Preset.lua）**：追踪【CDM 未渲染】的光环与武器附魔——由「基本配置 → 常见职业技能持续时间显示」开关控制（默认开启），在 `Preset.lua` 的 `PRESETS` 表里加一行即可，无需改其他代码。已内置各职业常见减伤/爆发技能的持续时间光环（盾墙/圣盾术/冰封之韧/斗篷/树皮术等，ID 按 12.x wowhead 核实）与武器附魔；光环类写 `auraSpellID`（光环 ID）+ `actionSpellID`（显示到哪个技能按钮），走 12.1 官方 **AuraContainer** 通道（容器按 `includeSpellIDs` 过滤，暴雪特权渲染倒计时/层数，插件零读取 → 战斗内照常显示）；武器附魔类写 `presetType="weaponEnchant"` + `enchantID` + `actionSpellID`（火舌 / 大地生命 / 唤潮护卫等）。种族技能（如矮人石像形态，与职业无关）同样写进 `PRESETS` 不设 class，`IsPlayerSpell` 会自动过滤掉未学该技能的种族。
-- 按钮文字调整（ButtonText）：调整原生按键 / 层数 / 宏文本字号与描边。
-- 隐藏原生动作条边框（HideActionBarBorders）：图标放大去边框并裁切溢出，启用时按钮加 1 像素黑色描边。
-- **动作条按钮变色（ButtonColor）**：CD 中 → 灰色；资源不足 → 蓝色；超出范围 → 红色（三态独立判定，全局开关默认开启）。
-- 配置 GUI 通过 Addon Compartment 打开（AceConfig 独立窗口）。战斗中无法打开配置，会自动延迟到脱离战斗后弹出。
+### Timers & stacks on buttons / 按钮上的倒计时与层数
 
-## WoW 12.1 Compatibility & Architecture / 12.1 兼容性与架构说明
+- Display buff countdowns and stack counts directly on action bar buttons, sourced from Blizzard's Cooldown Manager (CDM) — no more staring at buff frames.
+- 把增益的剩余时间与层数直接显示在动作条按钮上，数据来自暴雪冷却管理器（CDM），不用再盯 buff 框。
+- Two modes / 两种模式：
+  - **Auto / 自动**：buffs enabled in the Blizzard CDM settings automatically appear on the matching buttons. Zero configuration.
+    在暴雪 CDM 设置里启用的增益，自动显示到对应技能按钮，零配置。
+  - **Manual / 手动**：bind any tracked buff to any skill by spellID, per-specialization; timer / stack position adjustable (default / top / bottom / left / right).
+    按 spellID 把任意已追踪增益绑定到任意技能按钮，按专精独立保存；时间 / 层数位置可调（默认 / 上 / 下 / 左 / 右）。
+- Built-in presets for common class defensives & burst buffs (Shield Wall, Divine Shield, Icebound Fortitude, Barkskin...) and weapon enchants that CDM does not render.
+- 内置 CDM 不渲染的常见职业减伤 / 爆发技能（盾墙 / 圣盾术 / 冰封之韧 / 树皮术等）与武器附魔预设，开箱即用。
 
-本插件针对 12.1 的「Addonpocalypse」安全模型（Secret Values / Forbidden Aspects）做了专门设计。**核心理念：插件自己不读单位光环数据，只移动/配置暴雪渲染好的对象**，因此在战斗内零读取、零 taint。
+### Glow alerts / 发光提醒
 
-- **CDM 已渲染的光环（AutoCDM / Manual）**：reparent 暴雪 `BuffIconCooldownViewer` 里已画好的 `Cooldown` / `Applications` 控件。
-- **CDM 未渲染的光环（Preset.lua）**：用 12.1 官方 **AuraContainer**——插件建容器、按 `includeSpellIDs` 声明「要追踪哪些光环」，暴雪以特权读数据并驱动容器内 AuraButton 的倒计时/层数/显隐，插件同样零读取、战斗内可用。
+| Color 颜色 | Trigger 触发条件 | Source 来源 |
+|---|---|---|
+| Cyan 青色 | Aura present / 光环存在 | Manual「发光」mode 手动绑定·发光模式 |
+| Purple 紫色 | Aura missing / 光环不存在 | Manual「反发光」mode 手动绑定·反发光模式 |
+| Green 绿色 | Cooldown ready / 技能就绪 | CooldownGlow 冷却高亮 |
+| Yellow 黄色 | Trinket ready / 饰品就绪 | TrinketGlow 饰品高亮 |
 
-### Why reparent, not read / 为什么只搬运不读取
-- 12.1 起，战斗中 `GetAuraDataByIndex`（按 index 扫描）、`UNIT_AURA` 事件 payload、`AuraData` 结构的 `duration/expirationTime/applications/name` 全部为 **secret 值**——一旦读取或比较即 `taint`，表现为进战斗整片消失。
-- 本插件不读任何 unit-aura 数据：通过钩 CDM 的 `OnAcquireItemFrame` + `RefreshData`，把 CDM `BuffIconCooldownViewer` 已经渲染好的 **`Cooldown` 倒计时控件**与 **`Applications` 层数 FontString** 直接 `SetParent` 到动作按钮上。数据由暴雪自己算、自己画，插件只搬位置。
+- Cooldown ready glow is configurable: always on, or fade out 1–5s after ready.
+- 冷却就绪发光可配置：常亮，或就绪后 1–5 秒自动熄灭。
 
-### 12.1 关键 API 变更（与本插件相关）
-- **安全模型**：被 secret 化的是「按 index / slot / instanceID 访问」与部分身份类 API（`UnitClass` 等）。按 spellID / name 定点访问的 API（`GetAuraDataBySpellName` / `GetPlayerAuraBySpellID`）在 12.1 仍存在，但标注了 `RequiresNonSecretAura`——战斗中仅对「白名单（非 secret）光环」返回非 secret 数据；非白名单光环（如大地之盾，12.1 已从 never-secret 列表移除）战斗中返回 secret/空，任何插件都无法自读，这类光环必须走 AuraContainer 渲染（见 Preset.lua）。
-- **未被触碰的弃用/移除 API**：代码未使用 `getglobal` / `setglobal` / `CanAccessObject` / `UIParentLoadAddOn` / `SecureAuraHeaderTemplate` / `GetInspectSpecialization` / `ForEachAura`，保持干净。武器附魔单独走 `GetWeaponEnchantInfo`（item enchant 通道、非 unit aura，战斗安全，12.1 实测可用；另有 `C_PaperDollInfo.GetTemporaryEnchantmentInfo` 按 enchantID 兜底）。
-- **光环 UI 框架重写（AuraContainer / AuraButton）**：12.1 把原生光环控件重写成 `AuraButton`，其子控件一旦配置后不可再重父化。Preset.lua 用 AuraContainer 时**不重父 AuraButton**：容器是插件创建的普通帧（可 `SetPoint` 到按钮上方），AuraButton 在容器内由暴雪布局，倒计时/层数子控件在 `initializeFrame` 回调里注册。而 AutoCDM 的 CDM `BuffIconCooldownViewer` 是独立老框架，item 帧为**普通 Frame（非 AuraButton 底层）**，reparent 不受 forbidden aspect 影响——12.1 正式服实测运行顺畅，已验证。
+### Button state coloring / 按钮状态变色
 
-### 安全护栏 / 红线（勿破）
-- `UNIT_AURA` 处理器**只触发刷新**（`RefreshAllOverlays`），绝不读取事件 payload 的第 2/3 个参数（单位 / auraInstanceID）。
-- **禁止**调用 `GetAuraDataByIndex` / `AuraUtil.ForEachAura` 做全量扫描或发现。
-- 所有 reparent 调用均用 `pcall` 包裹，作为防御性兜底（失败时静默跳过，不崩）。
-- non-CDM buff 如需显示：走 **Preset.lua 的 AuraContainer 通道**——容器按 `includeSpellIDs` 过滤光环，暴雪特权渲染倒计时/层数，插件零读取、战斗内可用（大地之盾、天怒等已内置）；**绝不可用 `ForEachAura` / `GetAuraDataByIndex` 全量扫描发现**。
+- Gray = on cooldown; blue = not enough resources; red = out of range.
+- 灰色 = 冷却中；蓝色 = 资源不足；红色 = 超出施法范围。
 
-> 一句话：**此版本在 12.1 上是 combat-safe 的**。只要不引入「index 扫描 / 读 AuraData 字段 / 读 UNIT_AURA payload」三类写法，即可长期稳定。
+### Clean look & QoL / 外观清理与实用功能
 
-## Installation / 安装
+- Hide native bar borders and enlarge icons, with a subtle 1px outline.
+- 隐藏原生动作条边框、放大图标，并加 1 像素黑色描边。
+- Strip decorations from the extra action button (zone abilities).
+- 清理额外技能按钮（区域技能）的装饰材质与边框。
+- Adjust keybind / stack / macro text size with outline.
+- 调整按键 / 层数 / 宏文字的字号与描边。
+- Stop newly learned spells from being auto-added to your bars.
+- 阻止新学习的技能自动挤进动作条。
+- Optional per-bar mouse click-through (clicks fall through to what's underneath).
+- 每条动作条可单独开启鼠标穿透（点击落到动作条下方）。
 
-Copy the `ActionbarEnhanced` folder into `World of Warcraft\_retail_\Interface\AddOns\`, then enable it in-game (Esc → AddOns).
+## Getting Started / 快速上手
 
-## Configuration / 配置
+1. Open the config window: click the **minimap button**, or the **Addon Compartment** (the little suitcase by the minimap) → *Actionbar Enhanced*.
+   打开设置窗口：点击**小地图按钮**，或小地图旁的**插件抽屉**（小箱子图标）→ *Actionbar Enhanced*。
+2. Type **`/cdm`** to open Blizzard's own Cooldown Manager settings and pick which buffs to track.
+   输入 **`/cdm`** 直接打开暴雪自带冷却管理器设置，勾选想追踪的增益。
+3. For auto mode that's all. For manual mode, enter a spellID in the manual binding tab to bind a buff to a skill.
+   自动模式到此即可。手动模式在「手动配置光环」页输入 spellID，把增益绑定到指定技能。
+4. The config window cannot open in combat — it automatically re-opens once combat ends.
+   战斗中无法打开设置窗口，脱战后会自动弹出。
 
-打开设置窗口：点击小地图旁的 **Addon Compartment**（Actionbar Enhanced 条目）。设置面板基于 AceConfig 独立窗口（非暴雪设置系统）。
+## FAQ / 常见问题
 
-- **战斗中无法打开配置**：若在战斗中点击，会提示「战斗中无法配置」，并在脱离战斗后自动弹出；若战斗时配置界面已打开则会强制关闭，脱离战斗后自动重开。
-- 设置窗口底部有两个按钮：**重载界面**（ReloadUI）与其右侧的 **打开CDM**。
-- 斜杠命令 **`/cdm`**：直接打开暴雪自带的冷却管理器（CooldownViewerSettings）。
+- **The manual binding list is empty? / 「手动配置光环」列表是空的？**
+  Get any buff first (food, flask, class buff) — entries appear automatically.
+  先获得任意一个增益（食物 / 合剂 / 职业 buff），条目会自动出现。
 
-> 若「手动配置光环」列表为空，先获得一个增益（食物 / 合剂 / 职业 buff）——它会自动出现。
+- **Does it keep working in combat? / 战斗中能正常显示吗？**
+  Yes. The addon never reads protected aura data — it only repositions objects Blizzard has already rendered, so timers, stacks and glows keep working in combat, dungeons and PvP.
+  能。插件从不读取受保护的光环数据，只搬运暴雪已渲染好的对象，因此战斗 / 副本 / PvP 中倒计时、层数、发光全部照常工作。
 
-## Environment Variables / 环境变量
+- **Third-party action bars? / 支持 Bartender / Dominos 吗？**
+  No, by design — this addon is exclusively about enhancing the native bars.
+  不支持。本插件定位就是专注增强原生动作条。
 
-None. This is a pure WoW addon; all state lives in `ActionbarEnhancedDB`.
+- **Turned off "block auto-add spells" but it's still blocked? / 关闭「阻止新技能自动入条」后仍不恢复？**
+  That Blizzard mechanism is bound to the login session; a full relog is required (a mere `/reload` won't do it).
+  该机制绑定登录会话，需要小退重新登录才能恢复（仅重载界面无效）。
 
-## Release / 构建
+- **Tooltips disappear with click-through enabled? / 开鼠标穿透后按钮没提示了？**
+  Known trade-off of disabling mouse capture; keyboard bindings still work.
+  这是关闭鼠标捕获的已知取舍；键盘施法不受影响。
 
-No build step. Loads directly via the `.toc` file.
+## Compatibility / 兼容性
+
+- World of Warcraft retail 12.x. 正式服 12.x。
+- Only Blizzard-native action bars are supported. 仅支持暴雪原生动作条。
+- Combat-safe by architecture (technical notes in `AGENTS.md`). 架构上战斗安全（技术说明见 `AGENTS.md`）。

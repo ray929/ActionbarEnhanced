@@ -1,0 +1,78 @@
+# AGENTS.md — 本项目所有 AI Agent 必读
+
+> **给所有 agent 的强制要求（用户指定）：**
+> 1. 动手改代码前，先完整读完本文件。
+> 2. 每轮修改完成后**必须本地提交**（语义化单行 `type(scope): description`，不自动 push）——此为用户明确授权的常设指令。
+> 3. 功能变更后同步更新 `README.md`（面向普通插件使用者，中英双语同一文件，**不含**安装/构建/环境变量章节）。
+> 4. 踩到新坑、发现新注意点、确立新约定时，**必须把结论写回本文件**对应章节——本文件是项目经验的唯一沉淀处，不写下来等于白踩。
+> 5. WoW API 事实核查以 https://warcraft.wiki.gg/ 为准；不使用任何 WoW 相关 MCP。
+
+## 1. 项目定位
+
+围绕【暴雪原生动作条】做增强，**不做第三方动作条（Bartender/Dominos）适配，不替换/不重排动作条**。一切功能以 12.x combat-safe 为前提：插件不读受保护数据，只搬运/配置暴雪已渲染的对象。
+
+## 2. 模块地图（加载顺序见 .toc）
+
+| 文件 | 职责 |
+|---|---|
+| Settings.lua | 全局样式常量（颜色/字号/字体/描边），必须最先加载；外观不存盘 |
+| Manual.lua | 手动绑定：spellID→目标技能，倒计时/层数/发光/反发光渲染（全栈单文件） |
+| AutoCDM.lua | 自动发现：CDM 启用的增益自动铺到匹配按钮（BuffIconCooldownViewer） |
+| Preset.lua | 预设光环/武器附魔（CDM 不渲染的），走官方 AuraContainer 通道 |
+| CooldownGlow.lua | CDM「主冷却」技能就绪 ProcGlow（绿，可配常亮/1–5s） |
+| TrinketGlow.lua | 饰品就绪 ProcGlow（黄） |
+| ButtonColor.lua | 按钮三态变色：灰=CD、蓝=资源不足、红=超范围 |
+| ButtonText.lua | 按键/层数/宏文字字号与描边 |
+| HideActionBarBorders.lua | 隐藏原生边框、图标放大、1px 黑描边 |
+| RemoveExtraActionButtonTexture.lua | 清理额外技能按钮装饰（0.5s ticker 重施） |
+| DisableAutoAddSpells.lua | 阻止新技能自动入条（劫持 IconIntroTracker.OnEvent） |
+| ButtonClickThrough.lua | 每条动作条鼠标穿透（SecureHandlerStateTemplate 安全环境） |
+| Options.lua | AceConfig 独立配置窗口（Addon Compartment 入口） |
+| MinimapButton.lua | 小地图按钮（LibDBIcon） |
+
+## 3. 12.1 Secret Values 红线（最重要，违者必出"进战斗消失"）
+
+- **绝不读单位光环数据**：`GetAuraDataByIndex` / `AuraUtil.ForEachAura` 全量扫描、`UNIT_AURA` payload 第 2/3 参数、`frame.auraDataCached`、`frame.auraSpellID`、`GetAuraDuration` —— 一律禁止。
+- 两条合法通道：
+  - **A. reparent**：CDM viewer 里暴雪已渲染好的 `Cooldown` 控件 / `Applications` FontString 直接 `SetParent` 搬到自己的容器，数据由暴雪继续驱动（Manual/AutoCDM 用）。
+  - **B. AuraContainer**：自建容器 + `includeSpellIDs` 声明追踪哪些光环，暴雪特权渲染（Preset 用；大地之盾等战斗中必 secret 的光环只能走这条）。
+- secret 值 **不能靠 `type()` 预判**（12.1 起 secret 的 type() 可返回 number/boolean/string 等），统一用 `issecretvalue` 判定；对外部帧/数据的访问一律 `pcall` 包裹兜底。
+- 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。
+- 冷却数据：`GetInventoryItemCooldown` 返回传统三值 number（安全，TrinketGlow 用）；`C_ActionBar.GetActionCooldown` 的 CooldownInfo 是 **secret**（勿用）。
+- 按 spellID 定点的 `GetPlayerAuraBySpellID` 等在 12.1 仍存在但标注 `RequiresNonSecretAura`，战斗中仅白名单光环可用——不要依赖。
+
+## 4. Taint / 安全帧坑
+
+- 覆盖层容器**只挂 UIParent**，绝不 `SetPoint` 到安全动作按钮（非安全帧依赖安全帧 → taint 传播 → combat lockdown 整片隐藏）。定位用 `btn:GetRect()` 读屏幕坐标（只读不污染）+ 缩放换算 `r = 按钮有效缩放 / UIParent有效缩放`（不换算会偏移）。
+- **不跑自己的 OnUpdate 去刷挂在安全按钮上的子帧**（同上 taint 复检问题）。刷新一律 hook CDM item 的 `RefreshData`（暴雪驱动、战斗中照常触发）。
+- 对受保护帧调 `EnableMouse(false)` 等必须在 **SecureHandlerStateTemplate + RegisterStateDriver 安全环境**（ButtonClickThrough 的教训：普通 Lua 调用会永久 taint，连编辑模式都会报错）。
+- 非安全代码绝不能遍历受保护表（错误："attempted to iterate a table that cannot be accessed while tainted"）。
+
+## 5. CDM 扫描坑
+
+- 枚举 viewer 帧用 `itemFramePool:EnumerateActive`（= active 帧）；**别用 `GetItemFrames`**（拖动 CDM 触发 RefreshLayout→ReleaseAll 时瞬间变空/不全，且含池化隐藏帧 → 列表乱跳/清空）。
+- `Rescan` 用"新表扫描、扫到 0 帧保留旧表"策略，避免过渡态直接清空已知列表。
+- spellID 要**收全部候选**（`spellID/override/overrideTooltip/linkedSpellIDs`）：12.1 天赋改名场景（光环"烈焰震击" vs 按钮"流电炽焰"）只记一个 ID 会匹配失败。候选写在自己造的非 secret 字段 `frame.__BARSpellID/__BARSpellIDs` 上，绝不读 secret 的 `frame.auraSpellID`。
+- 与 CDMButtonAuras 同框共存时 hook 标记键要区分（本项目用 `__BARHooked`/`__BARAutoCDMHooked`），否则被对方抢先标记 → 永不 hook。
+- 登录时序：PLAYER_LOGIN 后 0.5s / 2s 双重延迟 Rescan 兜底（viewer 冷启动慢）。
+- 动作条切换（翻页/姿态/载具/御龙术）不一定触发 `ACTIONBAR_SLOT_CHANGED`，要同时监听 bonus/override/shapeshift/possess/multicast 等事件统一重建。
+
+## 6. LibCustomGlow 坑
+
+- `ProcGlow_Start` 会**叠层**：每次 Start 新建发光帧，不先 Stop 会越叠越厚。所有 glow 封装必须幂等守卫（如 `btn.__ManualGlow`），Stop 后才允许再 Start。
+- glow key 各模块必须独立（Manual=`MANUALGLOW`、CooldownGlow=`BAR`、TrinketGlow=`TG`），互不误杀。
+- 按钮移动/翻页/开关切换后发光会**残留**：维护"当前发光集合"，每次重算对账熄灭不再应发光的按钮（TrinketGlow 的解法），不要只在新位置点亮。
+
+## 7. 存档结构（SavedVariablesPerCharacter: ActionbarEnhancedDB）
+
+- `specs[specID].bindings[spellID] = { bindSpell, showTime, showStack, timePos, stackPos }`——绑定按专精独立；specID 取 `GetSpecializationInfo`，拿不到用 0（通用槽）。
+- 模块开关各存各的：`clickThrough[1..8]`、`trinketGlow.enabled`、`disableAutoAdd.enabled`、`removeExtraActionTexture.enabled` 等。
+- 外观（颜色/字号）是 Settings.lua 硬编码常量，**不存盘**；旧存档的顶层 timeColor/stackColor/fontSize 字段在 InitSpecStorage 时清理。
+- 兼容：旧扁平 `bindings`（顶层）迁移到 `specs[0]`；字符串型绑定转 table。
+
+## 8. 工程规范（Windows 环境专项）
+
+- **仓库换行是 LF**！Windows 编辑器（含部分 AI 写入路径）会把整库转成 CRLF → 61 个文件全量 diff churn（已实际踩坑）。提交前对改动的文本文件执行 `sed -i 's/\r$//' <files>` 规范回 LF。
+- 命令经 MSYS2 bash：`D:/msys64/usr/bin/bash.exe -lc "..."`，路径用正斜杠；`git log/diff` 加 `--no-pager`。
+- 临时文件放 `.temp/`（gitignore）；不引入新外部依赖库除非用户同意。
+- 验证：改完进游戏 `/reload` 实测；涉及刷新/显隐的功能**必须测战斗内**（secret 行为只在受限环境出现，非战斗环境测不出问题）。
