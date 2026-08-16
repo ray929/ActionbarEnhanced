@@ -23,7 +23,7 @@
 | Color 颜色 | Trigger 触发条件 | Source 来源 |
 |---|---|---|
 | Cyan 青色 | Aura present / 光环存在 | Manual「发光」mode 手动绑定·发光模式 |
-| Bright yellow 明黄色 | Aura missing / 光环不存在 | Manual「反发光」mode 手动绑定·反发光模式 |
+| Bright red 亮红色 | Aura missing / 光环不存在 | Manual「反发光」mode 手动绑定·反发光模式 |
 | Green 绿色 | Cooldown ready / 技能就绪 | CooldownGlow 冷却高亮 |
 | Yellow 黄色 | Trinket ready / 饰品就绪 | TrinketGlow 饰品高亮 |
 
