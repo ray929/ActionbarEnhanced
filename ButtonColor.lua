@@ -71,8 +71,14 @@ end
 
 -- =========================================================
 -- 取按钮当前指向的 spellID（spell / macro 兼容，同 CooldownGlow 思路）
+-- ⚠️ 性能：带按钮级缓存（weak key）。战斗中 UNIT_POWER_UPDATE 高频触发全量刷新，
+--   每次对 96 按钮做 GetActionInfo pcall + 宏解析是最大开销；槽位内容只在动作条
+--   事件（换技能/翻页/姿态/天赋）时变化，届时整体失效缓存即可，热路径零解析。
+--   缓存值用 false 哨兵表示"无技能"，避免空槽每帧重复解析。
 -- =========================================================
-local function GetButtonSpellID(btn)
+BC._sidCache = setmetatable({}, { __mode = "k" })
+
+local function ComputeButtonSpellID(btn)
     if not btn.action then return nil end
     local ok, at, id = pcall(GetActionInfo, btn.action)
     if not ok or not at or not id then return nil end
@@ -98,6 +104,26 @@ local function GetButtonSpellID(btn)
     end
     return nil
 end
+
+local function GetButtonSpellID(btn)
+    local cached = BC._sidCache[btn]
+    if cached ~= nil then return cached or nil end
+    local sid = ComputeButtonSpellID(btn)
+    BC._sidCache[btn] = sid or false
+    return sid
+end
+
+-- 槽位内容可能变化的时机：换技能 / 翻页 / 姿态 / 载具 / 天赋（整体失效重建）
+local SID_INVALIDATE_EVENTS = {
+    ACTIONBAR_SLOT_CHANGED    = true,
+    ACTIONBAR_PAGE_CHANGED    = true,
+    UPDATE_BONUS_ACTIONBAR    = true,
+    UPDATE_VEHICLE_ACTIONBAR  = true,
+    UPDATE_POSSESS_BAR        = true,
+    SPELLS_CHANGED            = true,
+    PLAYER_TALENT_UPDATE      = true,
+    ACTIVE_TALENT_GROUP_CHANGED = true,
+}
 
 -- =========================================================
 -- 判定动作是否处于“真实冷却”（排除纯 GCD）。
@@ -223,11 +249,14 @@ function BC.UpdateButton(btn)
     ApplyState(btn, GetButtonState(btn))
 end
 
--- 更新所有已注册按钮
+-- 更新所有已注册按钮（⚠️ 性能：跳过隐藏按钮——隐藏条上的按钮无需判定；
+--   条重新显示时按钮 Update/UpdateUsable 会触发 hook 即时补色）
 function BC.RefreshAll()
     if not BC.IsEnabled() then return end
     for btn in pairs(BC._buttons) do
-        BC.UpdateButton(btn)
+        if btn:IsShown() then
+            BC.UpdateButton(btn)
+        end
     end
 end
 
@@ -264,12 +293,20 @@ hooksecurefunc("ActionButton_UpdateCooldown", function(self)
 end)
 
 -- =========================================================
--- 事件驱动刷新（合并同帧多次事件，每帧至多刷新一次）
+-- 事件驱动刷新（合并同帧多次事件 + 限频）
+-- ⚠️ 性能：UNIT_POWER_UPDATE 在战斗中可达每秒十几次（能量/连击点/怒气 tick），
+--   每次全量刷 96 按钮的可用性/射程判定开销不小。改为「同帧合并 + 最小间隔 0.1s」：
+--   事件连发时每 0.1s 至多刷一次，颜色变化最多延迟 0.1s（无感）；
+--   单按钮 hook（Update/UpdateUsable/UpdateCooldown/RangeIndicator）仍即时响应。
 -- =========================================================
+local REFRESH_MIN_INTERVAL = 0.1
 local dirty = false
+local dirtyElapsed = 0
 local dispatchFrame = CreateFrame("Frame")
 dispatchFrame:Hide()
-dispatchFrame:SetScript("OnUpdate", function(self)
+dispatchFrame:SetScript("OnUpdate", function(self, elapsed)
+    dirtyElapsed = dirtyElapsed + elapsed
+    if dirtyElapsed < REFRESH_MIN_INTERVAL then return end
     self:Hide()
     dirty = false
     if BC.IsEnabled() then BC.RefreshAll() end
@@ -278,6 +315,7 @@ end)
 local function ScheduleRefresh()
     if dirty then return end
     dirty = true
+    dirtyElapsed = 0
     dispatchFrame:Show()
 end
 
@@ -311,6 +349,9 @@ function BC.Start()
         BC._evFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
         BC._evFrame:RegisterEvent("UNIT_FLAGS")
         BC._evFrame:RegisterEvent("UNIT_POWER_UPDATE")
+        BC._evFrame:RegisterEvent("SPELLS_CHANGED")
+        BC._evFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+        BC._evFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
     end
     BC._started = true
     RefreshCooldownCache()  -- 初始化冷却缓存
@@ -344,6 +385,10 @@ evFrame:SetScript("OnEvent", function(_, event, ...)
         BC.EnsureDB()
         if BC.IsEnabled() then BC.Start() end
         return
+    end
+    -- 槽位内容可能变化（换技能/翻页/姿态/载具/天赋）→ 失效 spellID 缓存
+    if SID_INVALIDATE_EVENTS[event] then
+        wipe(BC._sidCache)
     end
     if event == "SPELL_UPDATE_COOLDOWN" then
         -- isOnGCD 唯一可信时机：同步更新冷却缓存，再合并刷新应用

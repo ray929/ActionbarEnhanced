@@ -88,3 +88,17 @@
 | `docs/AuraContainer.md` | 12.1.0 AuraContainer / AuraButton 框架全解：三种槽位（AuraGroup/AuraSlot/ItemEnchantment）、两层过滤（filterString + candidateFilters 含 includeSpellIDs）、AuraButton 子控件注册 API、Forbidden Aspects 安全约束、事件模型。核实自 wow-ui-source live 分支，核实日期 2026-08-15 |
 
 写 docs/ 文档的要求：注明信息来源（wow-ui-source 分支 / wiki.gg 页面）与核实日期；12.x 变化快，使用前若版本已更新需重新核实。
+
+## 10. 性能优化红线（2026-08-16 大秘境 2~3% CPU 优化实战沉淀）
+
+**高频事件清单（战斗中）**：`UNIT_POWER_UPDATE`（能量/连击点 tick，可达 10+/s）、`UNIT_AURA`（buff/proc 连发）、`ACTIONBAR_UPDATE_COOLDOWN` / `SPELL_UPDATE_COOLDOWN`（每个 GCD/施放/充能）、各 cooldown 事件的 RefreshData hook。**任何挂在这些事件上的处理都必须问：能不能缓存？能不能防抖？能不能只处理变化的部分？**
+
+- **常驻 ticker 必须与"消费者是否在场"挂钩**：Options 的 0.5s 签名 ticker 曾在配置窗口关闭（战斗中必然关闭）时仍全量算签名——纯浪费。凡"为 GUI 刷新"的 ticker，先查窗口是否打开，未开直接 return。
+- **按钮 spellID 必须缓存**（ButtonColor / CooldownGlow）：`GetActionInfo` pcall + 宏解析（`C_Macro.GetMacroSpell` + 兜底 `GetSpellName`）× 96 按钮 × 每次事件 = 最大热点。缓存 weak-key 表 + `false` 哨兵（nil 也缓存，避免空槽重复解析），在槽位/翻页/姿态/载具/天赋事件（`SID_INVALIDATE_EVENTS` 集合）整体 `wipe`。
+- **全量刷新要限频**：ButtonColor 的 dispatch OnUpdate 从"每帧至多一次"改为"最小间隔 0.1s"（累加 elapsed），事件连发时刷新次数从事件频率降到 10/s；单按钮 hook 仍即时，视觉零差异。
+- **全条扫描必须换成映射**（AutoCDM）：`FindActionButtonForSpellName` 每个候选名扫 96 按钮（GetActionInfo+GetBaseSpell+GetSpellName），× CDM item 数 × 候选数 × UNIT_AURA 重扫。改「名字→按钮」映射（O(96) 建一次，动作条事件失效），查找 O(1)。
+- **重复计算要内联复用**：AutoCDM 的 `CollectCandidateSpellIDs`（pcall 链）曾被 UpdateFromItem / IsItemManuallyBound / detach 循环各收一遍（2~3 次/item）——收集一次传参复用。
+- **SetPoint 前先比对矩形**：Manual/AutoCDM 的 PositionOverlay 每次刷新都 ClearAllPoints+SetPoint+SetSize（触发布局重算）；缓存 `_rectL/_rectB/_rectW/_rectH/_rectR`（⚠️ 必须含缩放比 r，改 UI 缩放不改矩形），未变直接 return true。
+- **UNIT_AURA 全量重扫要防抖**（AutoCDM 0.2s / Preset 0.2s，cancel+NewTimer 模式）：AuraButton 显隐由暴雪实时驱动，插件侧只补重定位，0.2s 延迟无感。
+- **隐藏按钮跳过判定**：全量 RefreshAll 先 `btn:IsShown()` 过滤；条重新显示时按钮 Update/UpdateUsable hook 会即时补色，无视觉差异。
+- 量化背景：优化前大秘境战斗占用约 2~3% CPU；上述改完后按钮解析/布局调用在热路径上基本归零，残余为暴雪驱动部分。验证方式：`/console cpuDB off` 关闭或用性能统计插件（如 tdCPU2）战斗内复测。

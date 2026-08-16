@@ -793,10 +793,17 @@ local function PositionOverlay(ov)
     local r = 1
     local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
     if bs and ps and ps > 0 then r = bs / ps end
+    -- ⚠️ 性能：每次 RefreshData 都会走到这里，按钮没动时 ClearAllPoints+SetPoint
+    --    触发布局重算纯属浪费；矩形与缩放未变直接跳过。
+    if ov._rectL == left and ov._rectB == bottom and ov._rectW == width
+        and ov._rectH == height and ov._rectR == r then
+        return true
+    end
     local cw, ch = width * r, height * r
     ov.container:ClearAllPoints()
     ov.container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
     ov.container:SetSize(cw, ch)
+    ov._rectL, ov._rectB, ov._rectW, ov._rectH, ov._rectR = left, bottom, width, height, r
     return true
 end
 

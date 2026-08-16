@@ -213,7 +213,13 @@ local ACTION_BAR_PREFIXES = {
 -- 宏类型：解析宏内第一个法术（玩家常把带条件的技能放进宏，必须解析才能匹配 CDM 追踪列表）。
 --   12.x: C_Macro.GetMacroSpell；旧客户端: GetMacroSpell（均返回 name, spellID, ...）。
 -- flyout / item / 其他类型：返回 nil（无法稳定落到单一按钮发光）。
-local function GetButtonSpellID(btn)
+-- ⚠️ 性能：带按钮级 spellID 缓存（weak key，false 哨兵 = 无技能）。
+--   Evaluate 在每次冷却事件（GCD/充能/施放）都会遍历全部 96 按钮，逐按钮
+--   GetActionInfo pcall + 宏解析开销可观；槽位内容只在动作条/天赋事件时变化，
+--   届时整体失效（见事件帧 SID_INVALIDATE_EVENTS），热路径零解析。
+local _sidCache = setmetatable({}, { __mode = "k" })
+
+local function ComputeButtonSpellID(btn)
     if not btn.action then return nil end
     local ok, at, id = pcall(GetActionInfo, btn.action)
     if not ok or not at or not id then return nil end
@@ -242,6 +248,26 @@ local function GetButtonSpellID(btn)
     end
     return nil
 end
+
+local function GetButtonSpellID(btn)
+    local cached = _sidCache[btn]
+    if cached ~= nil then return cached or nil end
+    local sid = ComputeButtonSpellID(btn)
+    _sidCache[btn] = sid or false
+    return sid
+end
+
+-- 槽位内容可能变化的时机 → 失效缓存（这些事件事件帧均已注册）
+local SID_INVALIDATE_EVENTS = {
+    ACTIONBAR_SLOT_CHANGED      = true,
+    ACTIONBAR_PAGE_CHANGED      = true,
+    UPDATE_BONUS_ACTIONBAR      = true,
+    UPDATE_VEHICLE_ACTIONBAR    = true,
+    UPDATE_POSSESS_BAR          = true,
+    SPELLS_CHANGED              = true,
+    PLAYER_TALENT_UPDATE        = true,
+    ACTIVE_TALENT_GROUP_CHANGED = true,
+}
 
 -- 当前正在发光的按钮（反向索引便于停止）
 CG._glowing = CG._glowing or {}     -- [button] = spellID
@@ -505,6 +531,10 @@ evFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 evFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 
 evFrame:SetScript("OnEvent", function(_, event)
+    -- 槽位内容可能变化（换技能/翻页/姿态/载具/天赋）→ 失效 spellID 缓存
+    if SID_INVALIDATE_EVENTS[event] then
+        wipe(_sidCache)
+    end
     if event == "PLAYER_LOGIN" then
         CG.EnsureDB()
         if CG.IsEnabled() then

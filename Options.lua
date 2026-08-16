@@ -609,6 +609,10 @@ local lastSig = nil
 local lastSpec = nil
 local lastCgSig = nil
 C_Timer.NewTicker(0.5, function()
+    -- ⚠️ 性能：签名计算要遍历 CDM 查看器并逐帧 pcall，窗口未开时纯属浪费
+    --   （战斗中窗口必然关闭，等于全程白算）。窗口未开直接跳过；
+    --   打开后下一个 tick（≤0.5s）检测到差异自会补一次 Rescan + 重绘。
+    if not IsConfigOpen() then return end
     local sig = BAR.GetActiveViewerSignature and BAR.GetActiveViewerSignature() or ""
     -- CDM【主冷却】成员签名：用户在 CDM 主冷却分组增删法术会改变它
     -- （注意它独立于 buff 的 GetActiveViewerSignature，后者不含 EssentialCooldownViewer）。

@@ -738,6 +738,7 @@ local actionbarEvents = {
 }
 
 local evFrame = CreateFrame("Frame")
+local auraRefreshTimer = nil   -- UNIT_AURA 防抖（见事件处理）
 evFrame:RegisterEvent("PLAYER_LOGIN")
 for ev in pairs(actionbarEvents) do evFrame:RegisterEvent(ev) end
 evFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- 脱战：重试战斗中建失败的容器/刷新受限光环
@@ -774,8 +775,14 @@ evFrame:SetScript("OnEvent", function(_, event)
         C_Timer.After(0.1, function() invalidateButtons(); RefreshAll() end)
         C_Timer.After(0.5, function() invalidateButtons(); RefreshAll() end)
     elseif event == "UNIT_AURA" then
-        -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）
-        RefreshAll()
+        -- 仅触发刷新（容器内部已由暴雪监听并驱动 AuraButton；这里负责重定位等）。
+        -- ⚠️ 性能：战斗中 UNIT_AURA 连发（buff 逐个刷新/proc），逐次全量 RefreshAll 开销
+        --   可观且无必要——AuraButton 显隐由暴雪实时驱动，这里只补重定位，防抖 0.2s 无感。
+        if auraRefreshTimer then auraRefreshTimer:Cancel() end
+        auraRefreshTimer = C_Timer.NewTimer(0.2, function()
+            auraRefreshTimer = nil
+            RefreshAll()
+        end)
     elseif event == "PLAYER_TARGET_CHANGED" then
         -- 切目标：AuraContainer 不监听目标切换，unit="target" 的容器不会自动跟随，
         -- 需显式触发其重新解析光环（暴雪目标框也是这么做：UpdateAuras→UpdateAllAuras）。

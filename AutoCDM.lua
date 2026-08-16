@@ -67,9 +67,16 @@ local function PositionOverlay(ov)
     local r = 1
     local bs, ps = btn:GetEffectiveScale(), UIParent:GetEffectiveScale()
     if bs and ps and ps > 0 then r = bs / ps end
+    -- ⚠️ 性能：矩形与缩放未变时跳过重设锚点（每次 RefreshData/重扫都会走到这里，
+    --    ClearAllPoints+SetPoint 会让布局重算，按钮没动时纯属浪费）
+    if ov._rectL == left and ov._rectB == bottom and ov._rectW == width
+        and ov._rectH == height and ov._rectR == r then
+        return true
+    end
     ov:ClearAllPoints()
     ov:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * r, (bottom + height) * r)
     ov:SetSize(width * r, height * r)
+    ov._rectL, ov._rectB, ov._rectW, ov._rectH, ov._rectR = left, bottom, width, height, r
     return true
 end
 
@@ -93,9 +100,17 @@ end
 
 -- =========================================================
 -- 按钮查找（对齐 CDMButtonAurasControllerMixin）
+-- ⚠️ 性能：改为「名字 → 按钮」映射缓存。旧实现每个候选名都全条扫描
+--   （96 按钮 × GetActionInfo + GetBaseSpell + GetSpellName），战斗中
+--   UNIT_AURA 触发的全量重扫要乘上 CDM item 数 × 候选数，开销可观。
+--   现在只建一次 O(96) 映射，动作条事件时失效重建，查找 O(1)。
 -- =========================================================
-local function FindActionButtonForSpellName(name)
-    if not name then return end
+local nameButtonMap = nil
+local nameButtonMapDirty = true
+
+local function GetNameButtonMap()
+    if not nameButtonMapDirty and nameButtonMap then return nameButtonMap end
+    local map = {}
     local barNames = (ActionButtonUtil and ActionButtonUtil.ActionBarButtonNames) or {}
     for _, actionBar in ipairs(barNames) do
         if type(actionBar) == "string" then
@@ -105,9 +120,9 @@ local function FindActionButtonForSpellName(name)
                     local _, actionSpellID = GetActionInfo(btn.action)
                     if actionSpellID then
                         local baseSpellID = C_Spell.GetBaseSpell(actionSpellID)
-                        local actionSpellName = C_Spell.GetSpellName(baseSpellID)
-                        if name == actionSpellName then
-                            return btn
+                        local actionSpellName = baseSpellID and C_Spell.GetSpellName(baseSpellID)
+                        if actionSpellName and map[actionSpellName] == nil then
+                            map[actionSpellName] = btn
                         end
                     end
                 end
@@ -120,12 +135,19 @@ local function FindActionButtonForSpellName(name)
             local stanceSpellID = select(4, GetShapeshiftFormInfo(stanceBtn:GetID()))
             if stanceSpellID then
                 local stanceSpellName = C_Spell.GetSpellName(stanceSpellID)
-                if name == stanceSpellName then
-                    return stanceBtn
+                if stanceSpellName and map[stanceSpellName] == nil then
+                    map[stanceSpellName] = stanceBtn
                 end
             end
         end
     end
+    nameButtonMap = map
+    nameButtonMapDirty = false
+    return map
+end
+
+local function InvalidateNameButtonMap()
+    nameButtonMapDirty = true
 end
 
 -- 传入【多个候选 spellID】（CDM linkedSpellIDs + override + base），任一命中即可
@@ -133,6 +155,7 @@ local function GetActionButtonList(spellIDs)
     if type(spellIDs) == "number" then spellIDs = { spellIDs } end
     local buttonList = {}
     local nameSeen = {}
+    local map = GetNameButtonMap()
     for _, spellID in ipairs(spellIDs) do
         if spellID and not IsSecret(spellID) then
             local cdSpellName = C_Spell.GetSpellName(spellID)
@@ -141,7 +164,7 @@ local function GetActionButtonList(spellIDs)
                 local spellNameList = { cdSpellName }
                 tAppendAll(spellNameList, AuraMapByName[cdSpellName] or {})
                 for _, spellName in ipairs(spellNameList) do
-                    local button = FindActionButtonForSpellName(spellName)
+                    local button = map[spellName]
                     if button and not buttonList[button] then
                         buttonList[#buttonList + 1] = button
                     end
@@ -298,10 +321,11 @@ end
 -- =========================================================
 -- 该 item 是否已被【手动绑定】到某按钮（reparent 对象只有一份，手动优先，自动让路）。
 -- ⚠️ 必须定义在 UpdateFromItem 之前（Lua local 只对声明之后的代码可见）。
-local function IsItemManuallyBound(item)
+-- ⚠️ 性能：candidates 由调用方收集后传入（旧实现每次调用重新收集，
+--   UpdateFromItem + detach 循环一个 item 要收集 2~3 次 pcall 链）。
+local function IsItemManuallyBound(item, candidates)
     if not BAR.IsBound then return false end
-    local candidates = CollectCandidateSpellIDs(item)
-    for _, sid in ipairs(candidates) do
+    for _, sid in ipairs(candidates or CollectCandidateSpellIDs(item)) do
         if BAR.IsBound(sid) then
             return true
         end
@@ -323,7 +347,7 @@ local function UpdateFromItem(item)
         --   若该光环已被【手动绑定】到某按钮，自动 CDM 跳过（让手动独占），
         --   否则自动先移走对象，手动就 attach 不到了（两者会互相抢）。
         --   注意：这里只跳过、绝不 Detach——Detach 会把手动已 attach 的对象还回 item。
-        if IsItemManuallyBound(item) then
+        if IsItemManuallyBound(item, candidates) then
             return
         end
         local buttonList = GetActionButtonList(candidates)
@@ -410,6 +434,11 @@ end
 local function Initialize()
     InstallHooks()
     evFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+    evFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+    evFrame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
+    evFrame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
+    evFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+    evFrame:RegisterEvent("UPDATE_POSSESS_BAR")
     evFrame:RegisterUnitEvent("UNIT_AURA", "player")
 end
 
@@ -462,7 +491,15 @@ evFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         Initialize()
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
+        InvalidateNameButtonMap()   -- 槽位内容变化：名字→按钮映射失效
         if AutoCDM.IsEnabled() then RefreshAllOverlays() end
+    elseif event == "ACTIONBAR_PAGE_CHANGED" or event == "UPDATE_BONUS_ACTIONBAR"
+        or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "UPDATE_SHAPESHIFT_FORM"
+        or event == "UPDATE_POSSESS_BAR" then
+        -- 翻页/姿态/载具切换不一定触发 SLOT_CHANGED（对齐 Manual 的事件集）：
+        -- 同样失效映射并防抖重扫
+        InvalidateNameButtonMap()
+        if AutoCDM.IsEnabled() then ScheduleRefresh() end
     elseif event == "UNIT_AURA" then
         if AutoCDM.IsEnabled() then ScheduleRefresh() end
     end
