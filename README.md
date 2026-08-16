@@ -85,4 +85,4 @@
 
 - World of Warcraft retail 12.x. 正式服 12.x。
 - Only Blizzard-native action bars are supported. 仅支持暴雪原生动作条。
-- Combat-safe by architecture (technical notes in `AGENTS.md`). 架构上战斗安全（技术说明见 `AGENTS.md`）。
+- Combat-safe by architecture (API research notes in `docs/`). 架构上战斗安全（API 调研笔记见 `docs/`）。

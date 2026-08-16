@@ -4,8 +4,10 @@
 > 1. 动手改代码前，先完整读完本文件。
 > 2. 每轮修改完成后**必须本地提交**（语义化单行 `type(scope): description`，不自动 push）——此为用户明确授权的常设指令。
 > 3. 功能变更后同步更新 `README.md`（面向普通插件使用者，中英双语同一文件，**不含**安装/构建/环境变量章节）。
-> 4. 踩到新坑、发现新注意点、确立新约定时，**必须把结论写回本文件**对应章节——本文件是项目经验的唯一沉淀处，不写下来等于白踩。
-> 5. WoW API 事实核查以 https://warcraft.wiki.gg/ 为准；不使用任何 WoW 相关 MCP。
+> 4. 踩到新坑、发现新注意点、确立新约定时，**必须把结论写回本文件**对应章节——本文件是项目工程经验的唯一沉淀处，不写下来等于白踩。
+> 5. **学到新知识（API 用法、框架机制、源码调研结论等）归纳到 `docs/` 目录**，一个主题一个 `<Topic>.md`；坑/红线/约定写本文件，知识点写 `docs/`，两者分工不混（见 §9）。
+> 6. `README.md` 面向普通插件使用者，**不出现 agent / AGENTS.md 相关内容**。
+> 7. WoW API 事实核查以 https://warcraft.wiki.gg/ 为准；不使用任何 WoW 相关 MCP。
 
 ## 1. 项目定位
 
@@ -76,3 +78,13 @@
 - 命令经 MSYS2 bash：`D:/msys64/usr/bin/bash.exe -lc "..."`，路径用正斜杠；`git log/diff` 加 `--no-pager`。
 - 临时文件放 `.temp/`（gitignore）；不引入新外部依赖库除非用户同意。
 - 验证：改完进游戏 `/reload` 实测；涉及刷新/显隐的功能**必须测战斗内**（secret 行为只在受限环境出现，非战斗环境测不出问题）。
+
+## 9. 知识库（docs/ 目录）
+
+**分工约定**：坑 / 红线 / 项目约定 → 写本文件（AGENTS.md）；学到的**新知识**（API 用法、框架机制、暴雪源码调研结论、版本变更核实）→ 归纳成 `docs/<Topic>.md`。新文档须在下面登记。
+
+| 文档 | 主题 |
+|---|---|
+| `docs/AuraContainer.md` | 12.1.0 AuraContainer / AuraButton 框架全解：三种槽位（AuraGroup/AuraSlot/ItemEnchantment）、两层过滤（filterString + candidateFilters 含 includeSpellIDs）、AuraButton 子控件注册 API、Forbidden Aspects 安全约束、事件模型。核实自 wow-ui-source live 分支，核实日期 2026-08-15 |
+
+写 docs/ 文档的要求：注明信息来源（wow-ui-source 分支 / wiki.gg 页面）与核实日期；12.x 变化快，使用前若版本已更新需重新核实。
