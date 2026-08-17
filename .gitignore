@@ -32,3 +32,7 @@ reasonix.toml
 # 系统
 .DS_Store
 Thumbs.db
+
+docs/
+AGENTS.md
+pack-addon.cmd
