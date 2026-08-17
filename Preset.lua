@@ -63,6 +63,7 @@ local SELF_BUFFS = {
     { class = "DEATHKNIGHT", auraSpellID = 48707, actionSpellID = 48707 },  -- 反魔法护罩（减伤）
     { class = "DEATHKNIGHT", auraSpellID = 55233, actionSpellID = 55233 },  -- 吸血鬼之血（自保）
     { class = "DEATHKNIGHT", auraSpellID = 51271, actionSpellID = 51271 },  -- 冰霜之柱（爆发）
+    { class = "DEATHKNIGHT", auraSpellID = 49039, actionSpellID = 49039 },  -- 巫妖之躯
     -- 恶魔猎手 DEMONHUNTER（减伤/爆发）
     { class = "DEMONHUNTER", auraSpellID = 212800, actionSpellID = 212800 }, -- 疾影（减伤）
     { class = "DEMONHUNTER", auraSpellID = 162264, actionSpellID = 191427 }, -- 恶魔变形（光环 162264 → 技能 191427，爆发/减伤）
@@ -126,6 +127,11 @@ local SELF_BUFFS = {
     { class = "WARRIOR", auraSpellID = 6673, actionSpellID = 6673 },     -- 战斗怒吼（团队增益）
     -- 战士 WARRIOR（减伤/爆发；光环=技能同ID）
     { class = "WARRIOR", auraSpellID = 871, actionSpellID = 871 },       -- 盾墙（防战减伤）
+    { class = "WARRIOR", auraSpellID = 18499, actionSpellID = 18499 },       -- 狂暴之怒
+    { class = "WARRIOR", auraSpellID = 97463, actionSpellID = 97462 },       -- 集结呐喊
+    { class = "WARRIOR", auraSpellID = 1160, actionSpellID = 1160 , unit = "target", filter = "HARMFUL" },       -- 挫志怒吼
+    { class = "WARRIOR", auraSpellID = 12323, actionSpellID = 12323 , unit = "target", filter = "HARMFUL" },       -- 刺耳怒吼
+    { class = "WARRIOR", auraSpellID = 386071, actionSpellID = 386071 , unit = "target", filter = "HARMFUL" },       -- 瓦解怒吼
     { class = "WARRIOR", auraSpellID = 12975, actionSpellID = 12975 },   -- 破釜沉舟（防战减伤）
     { class = "WARRIOR", auraSpellID = 23920, actionSpellID = 23920 },   -- 法术反射（减伤）
     { class = "WARRIOR", auraSpellID = 184364, actionSpellID = 184364 }, -- 狂怒回复（自疗）
