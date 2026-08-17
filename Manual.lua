@@ -358,16 +358,6 @@ function BAR.IsBound(spellID)
     return false
 end
 
--- 读取某绑定的显示选项（showTime / showStack），默认 true（显示）
-function BAR.GetBindingOption(spellID, key)
-    local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
-    if type(b) == "table" then
-        if b[key] == nil then return true end
-        return b[key]
-    end
-    return true
-end
-
 -- 把某 CDM 增益(spellID)绑定到"目标技能"（扫描动作条找该技能的按钮并锚定覆盖层）。
 -- targetSpellID 为 nil 表示解绑。
 -- 绑定不再记具体动作条槽位：运行时扫动作条按技能定位，跟随变形/翻页/槽位变化。
@@ -384,8 +374,6 @@ function BAR.SetBoundSpell(spellID, targetSpellID)
         cur.bindSpell = nil
         cur.button = nil   -- 解绑
     end
-    if cur.showTime == nil then cur.showTime = true end
-    if cur.showStack == nil then cur.showStack = true end
     BAR.db.bindings[spellID] = cur
     -- 绑定变动后通知覆盖层重建（OnBindingsChanged 由第二段注册）
     if BAR.OnBindingsChanged then BAR.OnBindingsChanged() end
@@ -420,7 +408,7 @@ function BAR.GetSpellDisplayName(spellID)
     return tostring(spellID)
 end
 
--- 设置某绑定的显示选项（showTime / showStack）
+-- 设置某绑定的显示选项（timePos / stackPos / glow / inverseGlow）
 function BAR.SetBindingOption(spellID, key, val)
     if not spellID or not key then return end
     if not BAR.db then BAR.db = {} end
@@ -434,7 +422,9 @@ end
 
 -- =========================================================
 -- 按「职业专精」存储配置：相同专精读同一份，切换专精即切换配置。
--- 持久化结构：ActionbarEnhancedDB.specs[specID] = { bindings }（bindings[sid] = { bindSpell, showTime, showStack, timePos, stackPos }）
+-- 持久化结构：ActionbarEnhancedDB.specs[specID] = { bindings }
+--   （bindings[sid] = { bindSpell, glow, inverseGlow, timePos, stackPos }；timePos/stackPos 含 "无"=不显示，
+--     glow=有光环亮青、inverseGlow=无光环亮红，四项互相独立，2026-08-17 起）
 --   · specID 取自 GetSpecializationInfo(GetSpecialization())，跨职业唯一；拿不到时用 0（通用/默认槽）。
 --   · BAR.db 始终指向「当前专精」的子表；绑定与显示开关都落在此子表，无需其它模块改动。
 --   · 外观（时间/层数颜色、字号）为硬代码常量，不分专精、不可配置（见 Settings.lua）。
@@ -482,15 +472,29 @@ function BAR.SelectSpec(specID)
         local base = specs[0] or DefaultSpecConfig()
         specs[specID] = CopyTable and CopyTable(base) or DefaultSpecConfig()
     end
-    -- 绑定数据：旧字符串格式 -> 转 table，并补默认显示选项（showTime/showStack 默认显示）
+    -- 绑定数据格式迁移：
+    --   · 旧字符串格式 -> 转 table；
+    --   · 旧版发光/反发光混在 timePos 里 -> 拆为独立字段 glow / inverseGlow；
+    --   · 旧版 showTime/showStack=false（不显示）-> 迁移为位置「无」，废弃字段清理。
     local cfg = specs[specID]
     cfg.bindings = cfg.bindings or {}
     for sid, v in pairs(cfg.bindings) do
         if type(v) == "string" then
-            cfg.bindings[sid] = { button = v, showTime = true, showStack = true }
-        elseif type(v) == "table" then
-            if v.showTime == nil then v.showTime = true end
-            if v.showStack == nil then v.showStack = true end
+            cfg.bindings[sid] = { button = v }
+            v = cfg.bindings[sid]
+        end
+        if type(v) == "table" then
+            if v.timePos == "发光" then
+                v.glow = true
+                v.timePos = nil
+            elseif v.timePos == "反发光" then
+                v.inverseGlow = true
+                v.timePos = nil
+            end
+            if v.showTime == false and v.timePos == nil then v.timePos = "无" end
+            if v.showStack == false and v.stackPos == nil then v.stackPos = "无" end
+            v.showTime = nil
+            v.showStack = nil
         end
     end
 
@@ -720,22 +724,31 @@ local S = BAR.Settings
 local overlays = {}
 
 -- =========================================================
--- 发光（glow）辅助：timePos=="发光"（有光环亮，青色）/"反发光"（无光环亮，紫色）时给按钮 Proc Glow
+-- 发光（glow）辅助：绑定勾选「发光」（有光环亮，青色）/「反发光」（无光环亮，亮红色）时给按钮 Proc Glow
 -- 发光靠项目已加载的 LibCustomGlow-1.0（与 CooldownGlow 的 "BAR" / TrinketGlow 的 "TG" 区分用独立 key）
 -- =========================================================
 local LCG = LibStub and LibStub("LibCustomGlow-1.0", true)
 local MANUAL_GLOW_KEY = "MANUALGLOW"
 
 local function ManualGlowStart(btn, color)
-    if not btn or not LCG or btn.__ManualGlow then return end
-    LCG.ProcGlow_Start(btn, { key = MANUAL_GLOW_KEY, startAnim = true, color = color or S.MANUAL_GLOW_COLOR, scale = 0.8 })
+    if not btn or not LCG then return end
+    color = color or S.MANUAL_GLOW_COLOR
+    -- 幂等守卫：同色已亮则跳过；颜色不同（发光+反发光同时勾选、状态切换青↔红）先停再起
+    if btn.__ManualGlow then
+        if btn.__ManualGlowColor == color then return end
+        LCG.ProcGlow_Stop(btn, MANUAL_GLOW_KEY)
+        btn.__ManualGlow = false
+    end
+    LCG.ProcGlow_Start(btn, { key = MANUAL_GLOW_KEY, startAnim = true, color = color, scale = 0.8 })
     btn.__ManualGlow = true
+    btn.__ManualGlowColor = color
 end
 
 local function ManualGlowStop(btn)
     if not btn or not LCG or not btn.__ManualGlow then return end
     LCG.ProcGlow_Stop(btn, MANUAL_GLOW_KEY)
     btn.__ManualGlow = false
+    btn.__ManualGlowColor = nil
 end
 
 -- 仅接受暴雪原生动作条按钮，排除玩家/插件自定义按钮
@@ -809,22 +822,29 @@ end
 
 -- 战斗安全刷新：把 CDM item frame 上暴雪已渲染的倒计时/层数对象 reparent 到按钮容器。
 -- 由暴雪驱动刷新（RefreshData → SetCooldown / SetText），addon 完全不读 aura 数据 →
--- 战斗中照常显示、零 secret。发光模式用 frame:IsShown() 判断激活（普通帧状态，非 secret）。
+-- 战斗中照常显示、零 secret。发光/反发光用 frame:IsShown() 判断激活（普通帧状态，非 secret）。
 -- ⚠️ 12.1：绝不读 frame.auraDataCached / GetAuraDuration 等 secret 值。
-local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, spellID, button)
+-- 四项显示互相独立（用户 2026-08-17 指定）：
+--   glow=勾选「发光」（有光环亮青色）/ inverseGlow=勾选「反发光」（无光环亮红色），
+--   允许同时勾选（状态切换时青↔红换色）；timePos / stackPos 各含「无」= 不显示该数字。
+--   任一项的启用与否不受另外三项影响。
+local function UpdateAuraDisplay(container, frame, spellID, button)
     local ok = pcall(function()
         if not container then return end
-        local showTimeAllowed = (showTimeOpt ~= false)
-        local showStackAllowed = (showStackOpt ~= false)
 
-        -- 反发光模式判定（timePos=="反发光"）：与「发光」镜像——无光环时发光、有光环时熄灭
-        local inverseGlowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "反发光")
+        local b = (BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]) or {}
+        local glowOn = b.glow == true
+        local inverseOn = b.inverseGlow == true
+        local timePos = b.timePos or "默认"
+        local stackPos = b.stackPos or "默认"
+        local showTimeAllowed = (timePos ~= "无")
+        local showStackAllowed = (stackPos ~= "无")
 
         -- 光环不激活（item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置。
-        -- 反发光模式例外：此时（无光环）按钮要点亮（紫色，与「发光」青色区分）。
+        -- 反发光独立生效：此时（无光环）按钮要点亮（亮红色，与「发光」青色区分）。
         if not IsItemShown(frame) then
             container:Hide()
-            if inverseGlowMode then
+            if inverseOn then
                 ManualGlowStart(button, S.MANUAL_INVERSE_GLOW_COLOR)
             else
                 ManualGlowStop(button)
@@ -839,58 +859,46 @@ local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, sp
             return
         end
 
+        -- 光环激活：发光按勾选点亮（青色）；反发光此刻熄灭（镜像分支在上方无光环处）。
+        -- 时间/层数不受发光影响，照常按各自设置显示。
+        if glowOn then
+            ManualGlowStart(button)
+        else
+            ManualGlowStop(button)
+        end
+
         -- 用户要求：时间/层数已搬到按钮，CDM 原图标/背景框无意义 →
-        -- 把整个 item frame 移到屏幕外（MoveItemOffscreen，见 glowMode/非发光两处）。
+        -- 把整个 item frame 移到屏幕外（MoveItemOffscreen）。
         -- 不 Hide 任何 region；item 的 Show/Hide 状态不因位置改变，IsItemShown 依然有效。
+        -- 时间/层数均「无」时也保持隐藏（用户确认：全无时选简单稳定的路径）。
 
         -- 从 CDM item 拿暴雪已渲染对象
         local cdFrame = frame.GetCooldownFrame and frame:GetCooldownFrame()
         local stacksFS = frame.GetApplicationsFontString and frame:GetApplicationsFontString()
 
-        -- 反发光模式（timePos=="反发光"）：光环激活 → 熄灭、不显示时间/层数（与发光模式镜像）
-        if inverseGlowMode then
-            container:Hide()
-            ManualGlowStop(button)
-            MoveItemOffscreen(frame)
-            return
-        end
-
-        -- 发光模式判定（timePos=="发光"）：光环激活则发光、隐藏时间；否则熄灭。
-        local glowMode = spellID and (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos") == "发光")
-        if glowMode then
-            container:Hide()
-            ManualGlowStart(button)
-            -- 发光模式无倒计时/层数 reparent，直接把整个 item 移到屏幕外（图标+背景框消失）
-            MoveItemOffscreen(frame)
-        else
-            ManualGlowStop(button)
-            -- reparent 倒计时对象到容器（由暴雪驱动）
-            if cdFrame then
-                cdFrame:SetParent(container)
-                cdFrame:ClearAllPoints()
-                local pos = (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "timePos")) or "默认"
+        -- reparent 倒计时对象到容器（由暴雪驱动）；位置「无」= 隐藏该数字
+        if cdFrame then
+            cdFrame:SetParent(container)
+            cdFrame:ClearAllPoints()
+            if showTimeAllowed then
                 local cw, ch = container:GetSize()
-                if pos == "上" then
+                if timePos == "上" then
                     cdFrame:SetSize(cw * 0.68, ch * 0.68)
                     cdFrame:SetPoint("CENTER", container, "TOP", 0, 10)
-                elseif pos == "下" then
+                elseif timePos == "下" then
                     cdFrame:SetSize(cw * 0.68, ch * 0.68)
                     cdFrame:SetPoint("CENTER", container, "BOTTOM", 0, -10)
-                elseif pos == "左" then
+                elseif timePos == "左" then
                     cdFrame:SetSize(cw * 0.68, ch * 0.68)
                     cdFrame:SetPoint("CENTER", container, "LEFT", -10, 0)
-                elseif pos == "右" then
+                elseif timePos == "右" then
                     cdFrame:SetSize(cw * 0.68, ch * 0.68)
                     cdFrame:SetPoint("CENTER", container, "RIGHT", 10, 0)
                 else  -- 默认：左下角 62% 框
                     cdFrame:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 1, -6)
                     cdFrame:SetPoint("TOPRIGHT", container, "BOTTOMLEFT", cw * 0.62, ch * 0.62 - 7)
                 end
-                if showTimeAllowed then
-                    cdFrame:Show()
-                else
-                    cdFrame:Hide()
-                end
+                cdFrame:Show()
                 -- 去掉冷却扫光（转圈扇形指示）与边缘描边——只留倒计时数字，不要淡淡背景
                 -- ⚠️ 暴雪每次 RefreshData 都会 SetDrawSwipe(true)，故每次更新都重新关掉
                 cdFrame:SetDrawSwipe(false)
@@ -903,35 +911,36 @@ local function UpdateAuraDisplay(container, frame, showTimeOpt, showStackOpt, sp
                     cds:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
                     cds:SetTextColor(S.TIME_COLOR_OTHER_BUFF[1], S.TIME_COLOR_OTHER_BUFF[2], S.TIME_COLOR_OTHER_BUFF[3])
                 end
+            else
+                cdFrame:Hide()
             end
-            -- reparent 层数对象到容器（由暴雪驱动）
-            if stacksFS then
-                stacksFS:SetParent(container)
-                stacksFS:ClearAllPoints()
-                local spos = (BAR.GetBindingOption and BAR.GetBindingOption(spellID, "stackPos")) or "默认"
-                if spos == "上" then
+        end
+        -- reparent 层数对象到容器（由暴雪驱动）；位置「无」= 隐藏该数字
+        if stacksFS then
+            stacksFS:SetParent(container)
+            stacksFS:ClearAllPoints()
+            if showStackAllowed then
+                if stackPos == "上" then
                     stacksFS:SetPoint("CENTER", container, "TOP", 0, 10)
-                elseif spos == "下" then
+                elseif stackPos == "下" then
                     stacksFS:SetPoint("CENTER", container, "BOTTOM", 0, -10)
-                elseif spos == "左" then
+                elseif stackPos == "左" then
                     stacksFS:SetPoint("CENTER", container, "LEFT", -10, 0)
-                elseif spos == "右" then
+                elseif stackPos == "右" then
                     stacksFS:SetPoint("CENTER", container, "RIGHT", 10, 0)
                 else  -- 默认：左上 5, -5
                     stacksFS:SetPoint("TOPLEFT", container, "TOPLEFT", 5, -5)
                 end
                 stacksFS:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
                 stacksFS:SetTextColor(S.STACK_COLOR[1], S.STACK_COLOR[2], S.STACK_COLOR[3])
-                if showStackAllowed then
-                    stacksFS:Show()
-                else
-                    stacksFS:Hide()
-                end
+                stacksFS:Show()
+            else
+                stacksFS:Hide()
             end
-            -- reparent 完成，倒计时/层数已移出 item → 把整个 item 移到屏幕外（图标+背景框消失）
-            MoveItemOffscreen(frame)
-            container:Show()
         end
+        -- reparent 完成，倒计时/层数已移出 item → 把整个 item 移到屏幕外（图标+背景框消失）
+        MoveItemOffscreen(frame)
+        container:Show()
     end)
     if not ok then
         if container then container:Hide() end  -- 兜底：任何 secret/taint 操作失败都不让错误冒泡
@@ -1022,8 +1031,8 @@ function BAR.UpdateOverlayForSpell(spellID, frame)
         ManualGlowStop(ov.button)
         return
     end
-    -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
-    UpdateAuraDisplay(ov.container, frame, true, true, ov.spellID, ov.button)
+    -- 显示项（发光/反发光/时间/层数）由 UpdateAuraDisplay 从绑定配置独立读取
+    UpdateAuraDisplay(ov.container, frame, ov.spellID, ov.button)
 end
 
 -- 一次性重新同步所有覆盖层：登录 / 切换专精 / 动作条变动 / 重新扫描后调用。
@@ -1036,8 +1045,8 @@ function BAR.RefreshAllOverlays()
             ManualGlowStop(ov.button)
         else
             local frame = BAR.FindFrameForSpell and BAR.FindFrameForSpell(sid)
-            -- 时间与层数已改为「绑定即一律显示」，不读取显示开关
-            UpdateAuraDisplay(ov.container, frame, true, true, sid, ov.button)
+            -- 显示项（发光/反发光/时间/层数）由 UpdateAuraDisplay 从绑定配置独立读取
+            UpdateAuraDisplay(ov.container, frame, sid, ov.button)
         end
     end
 end

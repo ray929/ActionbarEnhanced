@@ -13,8 +13,8 @@
 - Two modes / 两种模式：
   - **Auto / 自动**：buffs enabled in the Blizzard CDM settings automatically appear on the matching buttons. Zero configuration.
     在暴雪 CDM 设置里启用的增益，自动显示到对应技能按钮，零配置。
-  - **Manual / 手动**：bind any tracked buff to any skill by spellID, per-specialization; timer / stack position adjustable (default / top / bottom / left / right).
-    按 spellID 把任意已追踪增益绑定到任意技能按钮，按专精独立保存；时间 / 层数位置可调（默认 / 上 / 下 / 左 / 右）。
+  - **Manual / 手动**：bind any tracked buff to any skill by spellID, per-specialization; timer / stack position adjustable (default / top / bottom / left / right / none), plus optional glow (aura present) and inverse glow (aura missing) toggles — all four settings are independent of each other.
+    按 spellID 把任意已追踪增益绑定到任意技能按钮，按专精独立保存；时间 / 层数位置可调（默认 / 上 / 下 / 左 / 右 / 无），并可勾选「发光」（有光环亮青色）与「反发光」（无光环亮红色）——四项设置互相独立，任意组合。
 - Built-in presets for common class defensives & burst buffs (Shield Wall, Divine Shield, Icebound Fortitude, Barkskin...) and weapon enchants that CDM does not render.
 - 内置 CDM 不渲染的常见职业减伤 / 爆发技能（盾墙 / 圣盾术 / 冰封之韧 / 树皮术等）与武器附魔预设，开箱即用。
 
@@ -22,8 +22,8 @@
 
 | Color 颜色 | Trigger 触发条件 | Source 来源 |
 |---|---|---|
-| Cyan 青色 | Aura present / 光环存在 | Manual「发光」mode 手动绑定·发光模式 |
-| Bright red 亮红色 | Aura missing / 光环不存在 | Manual「反发光」mode 手动绑定·反发光模式 |
+| Cyan 青色 | Aura present / 光环存在 | Manual「发光」checkbox 手动绑定·发光勾选 |
+| Bright red 亮红色 | Aura missing / 光环不存在 | Manual「反发光」checkbox 手动绑定·反发光勾选 |
 | Green 绿色 | Cooldown ready / 技能就绪 | CooldownGlow 冷却高亮 |
 | Yellow 黄色 | Trinket ready / 饰品就绪 | TrinketGlow 饰品高亮 |
 

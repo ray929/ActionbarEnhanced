@@ -67,7 +67,7 @@
 
 ## 7. 存档结构（SavedVariablesPerCharacter: ActionbarEnhancedDB）
 
-- `specs[specID].bindings[spellID] = { bindSpell, showTime, showStack, timePos, stackPos }`——绑定按专精独立；specID 取 `GetSpecializationInfo`，拿不到用 0（通用槽）。
+- `specs[specID].bindings[spellID] = { bindSpell, glow, inverseGlow, timePos, stackPos }`——绑定按专精独立；specID 取 `GetSpecializationInfo`，拿不到用 0（通用槽）。2026-08-17 起发光/反发光从 timePos 拆出为独立布尔字段（glow=有光环亮青、inverseGlow=无光环亮红，允许同时勾、状态切换换色），timePos/stackPos 增加 `"无"`=不显示该数字；四项（发光/反发光/时间/层数）互相独立。SelectSpec 内做旧档迁移：timePos="发光"/"反发光"→拆字段，showTime/showStack=false→位置"无"（字段已废弃清理）。
 - 模块开关各存各的：`clickThrough[1..8]`、`trinketGlow.enabled`、`disableAutoAdd.enabled`、`removeExtraActionTexture.enabled` 等。
 - 外观（颜色/字号）是 Settings.lua 硬编码常量，**不存盘**；旧存档的顶层 timeColor/stackColor/fontSize 字段在 InitSpecStorage 时清理。
 - 兼容：旧扁平 `bindings`（顶层）迁移到 `specs[0]`；字符串型绑定转 table。

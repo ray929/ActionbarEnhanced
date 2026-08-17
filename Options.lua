@@ -30,10 +30,15 @@ local function GetStackPos(spellID)
     return "默认"
 end
 
-local POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右" }
--- 时间位置专用列表：比层数多「发光」（光环激活时按钮发光、不显示时间）
--- 与「反发光」（无光环时按钮发光、有光环时熄灭、不显示时间）两个选项
-local TIME_POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右", ["发光"] = "发光", ["反发光"] = "反发光" }
+-- 时间/层数位置共用列表：「无」= 不显示对应数字（2026-08-17 起）。
+-- 发光/反发光已从位置列表拆出，改为行内独立勾选框（与时间/层数互不影响）。
+local POS_VALUES = { ["默认"] = "默认", ["上"] = "上", ["下"] = "下", ["左"] = "左", ["右"] = "右", ["无"] = "无" }
+
+-- 读取某绑定的发光/反发光勾选状态（默认不勾选）
+local function GetGlowFlag(spellID, key)
+    local b = BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]
+    return type(b) == "table" and b[key] == true or false
+end
 
 -- 冷却高亮时长枚举：0 = 常亮；1~5 = 就绪后亮 N 秒自动熄灭
 local GLOW_DUR_VALUES = { [0] = "常亮", [1] = "1 秒", [2] = "2 秒", [3] = "3 秒", [4] = "4 秒", [5] = "5 秒" }
@@ -42,8 +47,9 @@ local GLOW_DUR_VALUES = { [0] = "常亮", [1] = "1 秒", [2] = "2 秒", [3] = "3
 -- 开关改动即写 DB 并实时 BT.ApplyAll()。
 local BT = BAR.ButtonText
 
--- 自定义 AceGUI 控件「图标 + 位置 + 绑定」同一行：
---   放大的图标（可悬停显示暴雪原生法术 tooltip） + 位置下拉 + 绑定技能输入框，三者 Flow 横向并排。
+-- 自定义 AceGUI 控件「图标 + 名称 + 时间位置 + 层数位置 + 发光/反发光 + 绑定技能」同一行：
+--   放大的图标（可悬停显示暴雪原生法术 tooltip）+ 名称 + 两个位置下拉 + 两个发光勾选框
+--   + 绑定技能输入框，Flow 横向并排（窗口默认宽度已相应加宽，见 SetDefaultSize）。
 --   以 dialogControl 挂在 description 选项上；AceConfig 对 description 会调用 widget:SetText(options.name)，
 --   故在 SetText 里解析 name（编码为 "spellID\1 icon"）并构建子控件。
 AceGUI:RegisterWidgetType("CDMIconRow", function()
@@ -97,10 +103,10 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
             lbl:SetWidth(90)
             self:AddChild(lbl)
         end
-        -- 位置下拉
+        -- 位置下拉（默认/上/下/左/右/无；「无」= 不显示倒计时数字）
         local pos = AceGUI:Create("Dropdown")
         pos:SetLabel("时间位置")
-        pos:SetList(TIME_POS_VALUES)
+        pos:SetList(POS_VALUES)
         pos:SetValue(GetTimePos(sid))
         pos:SetWidth(100)
         pos:SetCallback("OnValueChanged", function(_, _, v)
@@ -108,7 +114,7 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
             if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
         end)
         self:AddChild(pos)
-        -- 层数位置下拉（与时间位置一致的 默认/上/下/左/右）
+        -- 层数位置下拉（默认/上/下/左/右/无；「无」= 不显示层数数字）
         local spos = AceGUI:Create("Dropdown")
         spos:SetLabel("层数位置")
         spos:SetList(POS_VALUES)
@@ -119,6 +125,26 @@ AceGUI:RegisterWidgetType("CDMIconRow", function()
             if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
         end)
         self:AddChild(spos)
+        -- 发光/反发光独立勾选框（默认不勾；与时间/层数互不相关，允许同时勾选）：
+        --   发光=有光环时按钮亮青色；反发光=无光环时亮红色（同时勾选则状态切换换色）。
+        local glowCb = AceGUI:Create("CheckBox")
+        glowCb:SetLabel("发光")
+        glowCb:SetValue(GetGlowFlag(sid, "glow"))
+        glowCb:SetWidth(64)
+        glowCb:SetCallback("OnValueChanged", function(_, _, v)
+            BAR.SetBindingOption(sid, "glow", v)
+            if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+        end)
+        self:AddChild(glowCb)
+        local invCb = AceGUI:Create("CheckBox")
+        invCb:SetLabel("反发光")
+        invCb:SetValue(GetGlowFlag(sid, "inverseGlow"))
+        invCb:SetWidth(84)
+        invCb:SetCallback("OnValueChanged", function(_, _, v)
+            BAR.SetBindingOption(sid, "inverseGlow", v)
+            if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+        end)
+        self:AddChild(invCb)
         -- 绑定技能输入框（回车提交；留空提交 = 取消绑定）
         local bs = BAR.GetBoundSpell and BAR.GetBoundSpell(sid)
         local edit = AceGUI:Create("EditBox")
@@ -465,6 +491,9 @@ BuildManualArgs()
 BuildCooldownGlowArgs()
 
 AceConfig:RegisterOptionsTable("ActionbarEnhanced", options)
+-- 行内控件增多（图标+名称+两个下拉+发光/反发光勾选+输入框），加宽默认窗口保证一行放下
+-- （AceConfigDialog 默认 700x500；status 表为会话级，加载期设置即可作为每次打开的初始尺寸）
+AceConfigDialog:SetDefaultSize("ActionbarEnhanced", 880, 640)
 -- 注：不调用 AddToBlizOptions，避免回到暴雪新设置系统；仅用 AceConfigDialog 独立窗口。
 
 -- 打开暴雪自带冷却管理器（CDM）。实现参考 CooldownManagerButton 插件。
