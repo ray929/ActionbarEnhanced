@@ -85,4 +85,10 @@
 
 - World of Warcraft retail 12.x. 正式服 12.x。
 - Only Blizzard-native action bars are supported. 仅支持暴雪原生动作条。
-- Combat-safe by architecture (API research notes in `docs/`). 架构上战斗安全（API 调研笔记见 `docs/`）。
+- Combat-safe by architecture — no protected data is read. 架构上战斗安全——不读取受保护数据。
+
+## Disclaimer / 免责声明
+
+This is a third-party addon for World of Warcraft. Please read the features above and make sure you understand what it does **before** downloading and using it. The author provides it "as is" without any warranty, and you use it entirely at your own risk. The author is not responsible for any game issues, account actions, or other consequences arising from its use.
+
+这是一个《魔兽世界》第三方插件。请在**下载和使用之前**先阅读上方功能说明，确认你了解它的用途与效果。本插件按「原样」提供，作者不作任何保证，使用风险由你本人自行承担；因使用本插件导致的任何游戏问题、账号处理或其他后果，作者概不负责。
