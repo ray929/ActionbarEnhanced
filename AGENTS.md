@@ -38,6 +38,13 @@
 - 两条合法通道：
   - **A. reparent**：CDM viewer 里暴雪已渲染好的 `Cooldown` 控件 / `Applications` FontString 直接 `SetParent` 搬到自己的容器，数据由暴雪继续驱动（Manual/AutoCDM 用）。
   - **B. AuraContainer**：自建容器 + `includeSpellIDs` 声明追踪哪些光环，暴雪特权渲染（Preset 用；大地之盾等战斗中必 secret 的光环只能走这条）。
+  - **B+ 层数条/阈值变色**（2026-08-18 审计 buffbar 插件沉淀，全程零读光环数据）：
+    - 核心三板斧：`CreateFrame("AuraContainer", nil, owner, "CustomAuraContainerTemplate")` + 每 slot `AddAuraSlot(key, filter, { candidateFilters = { includeSpellIDs = {...} }, initializeFrame = ... })` + 容器 `SetUnit(token)`；减益只认自己上的用 filter `"HARMFUL|PLAYER"`。
+    - **层数驱动**：`button:SetApplicationBar(statusBar, { maxApplications = N })` 把任意 StatusBar 交给暴雪特权代码 SetValue（层数/充能进度自动填充）；层数数字用 `button:SetApplicationCount(fontString, { formatter = C_StringUtil.CreateNumericRuleFormatter() 的 0 层显示空/≥1 显示 %d 规则 })`。secret 环境暴雪写不受限，插件 Lua 全程不碰数据。
+    - **阈值变色**：同一 spellID 注册**多个独立 slot 克隆**，各自套几何陷阱叠出"到阈值换色"——底色槽 maxApplications=maxStacks；阈值槽 maxApplications=阈值（分母变小控制填充比例）+ MaskTexture 只露接缝左/右侧（接缝 = 条宽 × 阈值/maxStacks）；层数未达阈值时暴雪自动隐藏该克隆，达到时显示。环形样式则每格一个 slot（activationAt = max(阈值, 格序号)），⚠️ 25 层+3 阈值 ≈ 101 slot/条，帧开销大，慎用于高频场景。
+    - **战斗门禁**：官方元 API `C_Secrets.ShouldAurasBeSecret()`（返回布尔，本身不泄密）+ `InCombatLockdown()` 双查，战斗中绝不创建/重建容器，只记 `pendingRebuild` 待 `PLAYER_REGEN_ENABLED` 重建；登录期在 `ADDON_LOADED` 后先建（光环未 secret）。
+    - 代价：战斗中不能改任何配置（阈值/位置/增删均需脱战重建）；登录后进战斗前没建成的条整场缺席。目标单位（target）模块战斗中切目标 `SetUnit`+`UpdateAllAuras` 需 pcall，secret 期失败则停在旧目标，脱战恢复。
+    - 若日后做"层数进度条/阈值变色"类功能，此路 combat-safe，优先考虑。
 - secret 值 **不能靠 `type()` 预判**（12.1 起 secret 的 type() 可返回 number/boolean/string 等），统一用 `issecretvalue` 判定；对外部帧/数据的访问一律 `pcall` 包裹兜底。
 - 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。
 - 冷却数据：`GetInventoryItemCooldown` 返回传统三值 number（安全，TrinketGlow 用）；`C_ActionBar.GetActionCooldown` 的 CooldownInfo 是 **secret**（勿用）。
