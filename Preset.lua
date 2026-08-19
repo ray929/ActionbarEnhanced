@@ -15,6 +15,10 @@
 --     层数(SetApplicationCount)、显隐(ApplyVisibility)——addon 不读任何字段。
 --   · addon 只负责两件事：把容器定位到动作条按钮上方（屏幕坐标、零锚依赖），
 --     以及在 initializeFrame 回调里创建并注册子控件（必须 parent 到 AuraButton）。
+--   · 容器一经创建【绝不 Hide→Show 切换】：Hide 会注销 UNIT_AURA 事件注册，重新 Show 触发
+--     OnShow_Intrinsic→UpdateAllAuras→FullAuraRebuild——该全量重建在战斗中(secret)解析光环失败，
+--     光环帧被清空后要等下一次 UNIT_AURA（通常=脱战）才恢复。按钮找不到时改为「停靠屏幕外」
+--     （ParkContainer）：IsVisible 保持 true，事件注册与倒计时持续在线，切回瞬时恢复。
 --   · 武器附魔走 item enchant 通道（非 unit aura），12.1 战斗中不受限，
 --     自建 Cooldown 由 1 秒 ticker 刷新（不挂每帧 OnUpdate）。
 --
@@ -76,7 +80,7 @@ local SELF_BUFFS = {
     { class = "HUNTER", auraSpellID = 288613, actionSpellID = 288613 },    -- 百发百中（爆发）
     { class = "HUNTER", auraSpellID = 34477, actionSpellID = 34477 },    -- 误导(生效前)
     { class = "HUNTER", auraSpellID = 35079, actionSpellID = 34477 },    -- 误导(生效后)
-    { class = "HUNTER", auraSpellID = 257622, actionSpellID = 260243 },    -- 技巧射击
+    { class = "HUNTER", auraSpellID = 257622, actionSpellID = 257620 },    -- 技巧射击绑多重射击
     { class = "HUNTER", auraSpellID = 6197, actionSpellID = 6197 },    -- 鹰眼术
     -- 武僧 MONK（减伤/爆发）
     { class = "MONK", auraSpellID = 122278, actionSpellID = 122278 },    -- 躯不坏（减伤）
@@ -362,6 +366,28 @@ local function PositionContainer(container, btn, p)
     return true
 end
 
+-- 把容器停靠到屏幕外（按钮找不到/定位失败时）。
+-- ⚠️ 绝不用 container:Hide()：Hide 会注销 UNIT_AURA 注册（ShouldRegisterForDynamicEvents =
+--    IsVisible and IsEnabled），重新 Show 触发 OnShow_Intrinsic→UpdateAllAuras→FullAuraRebuild，
+--    战斗中(secret)解析光环失败 → 光环帧清空，要等下一次 UNIT_AURA（通常=脱战）才恢复——
+--    即「切走动作条再切回、倒计时消失到脱战」的 bug。
+--    停靠屏幕外保持 IsVisible=true：事件注册与倒计时持续在线，切回重定位即瞬时恢复。
+--    cd 是绝对屏幕坐标锚到 UIParent 的（见 LayoutAuraChildren），不随容器走，需一并停靠；
+--    fs 相对锚定 btn 自动跟随。必须清矩形缓存：切回后按钮矩形若恰好与旧缓存相同，
+--    PositionContainer 会判"未变"跳过 SetPoint → 容器留在屏幕外。
+local function ParkContainer(container, p)
+    if p._parked then return end
+    container:ClearAllPoints()
+    container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
+    if p.cd then
+        p.cd:ClearAllPoints()
+        p.cd:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
+        p.cd:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -9990, -9990)
+    end
+    p._parked = true
+    p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
+end
+
 -- initializeFrame 回调：暴雪创建 AuraButton 后，addon 注册子控件。
 -- ⚠️ 子控件必须 parent 到 btn（ValidateInboundScriptObject 强制 descendant，
 --    InitializeInboundScriptObject 禁止之后改 parent），之后由暴雪驱动内容：
@@ -468,16 +494,18 @@ local function UpdatePresetAura(p)
             print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(FmtAuraID(p.auraSpellID), p.actionSpellID))
             p._btnMissingLogged = true
         end
-        container:Hide()
+        ParkContainer(container, p)
         return
     end
     p._btnMissingLogged = nil
     if not PositionContainer(container, btn, p) then
-        container:Hide()
+        ParkContainer(container, p)
         return
     end
+    p._parked = nil
     -- 容器保持可见以接收 UNIT_AURA（ShouldRegisterForDynamicEvents = IsVisible and IsEnabled）；
-    -- AuraButton 的显隐由暴雪 ApplyVisibility 控制（有光环显示、无光环隐藏）
+    -- AuraButton 的显隐由暴雪 ApplyVisibility 控制（有光环显示、无光环隐藏）。
+    -- 正常路径容器从未 Hide，此 Show 幂等无副作用（仅兜底 SetEnabled(false→true) 场景）
     container:Show()
     ApplyCountdownFont(p)
 end

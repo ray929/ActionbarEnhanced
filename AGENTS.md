@@ -38,6 +38,7 @@
 - 两条合法通道：
   - **A. reparent**：CDM viewer 里暴雪已渲染好的 `Cooldown` 控件 / `Applications` FontString 直接 `SetParent` 搬到自己的容器，数据由暴雪继续驱动（Manual/AutoCDM 用）。
   - **B. AuraContainer**：自建容器 + `includeSpellIDs` 声明追踪哪些光环，暴雪特权渲染（Preset 用；大地之盾等战斗中必 secret 的光环只能走这条）。
+    - **容器显隐管理坑（Preset，2026-08-19 修）**：容器一经创建**绝不 Hide→Show 切换显隐**——`Hide` 注销 UNIT_AURA 注册（`ShouldRegisterForDynamicEvents = IsVisible and IsEnabled`），重新 `Show` 触发 `OnShow_Intrinsic→UpdateAllAuras→FullAuraRebuild`，该全量重建在战斗中(secret)解析光环失败，光环帧被清空后要等下一次 UNIT_AURA（通常=脱战）才恢复 → 症状为「切换动作条切走再切回，倒计时消失直到脱战」。正解：按钮找不到/定位失败时把容器**停靠屏幕外**（SetPoint 到 -10000，IsVisible 保持 true），事件注册与倒计时持续在线，切回重定位瞬时恢复。⚠️ 两个连带点：① 绝对屏幕坐标锚到 UIParent 的子控件（如倒计时 Cooldown）不随容器走，停靠时需一并挪；② 停靠时必须清矩形缓存，否则恢复时按钮矩形未变会被"位置未变跳过 SetPoint"逻辑卡在屏幕外。
   - **B+ 层数条/阈值变色**（2026-08-18 审计 buffbar 插件沉淀，全程零读光环数据）：
     - 核心三板斧：`CreateFrame("AuraContainer", nil, owner, "CustomAuraContainerTemplate")` + 每 slot `AddAuraSlot(key, filter, { candidateFilters = { includeSpellIDs = {...} }, initializeFrame = ... })` + 容器 `SetUnit(token)`；减益只认自己上的用 filter `"HARMFUL|PLAYER"`。
     - **层数驱动**：`button:SetApplicationBar(statusBar, { maxApplications = N })` 把任意 StatusBar 交给暴雪特权代码 SetValue（层数/充能进度自动填充）；层数数字用 `button:SetApplicationCount(fontString, { formatter = C_StringUtil.CreateNumericRuleFormatter() 的 0 层显示空/≥1 显示 %d 规则 })`。secret 环境暴雪写不受限，插件 Lua 全程不碰数据。
