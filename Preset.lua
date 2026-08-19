@@ -376,7 +376,16 @@ end
 --    fs 相对锚定 btn 自动跟随。必须清矩形缓存：切回后按钮矩形若恰好与旧缓存相同，
 --    PositionContainer 会判"未变"跳过 SetPoint → 容器留在屏幕外。
 local function ParkContainer(container, p)
-    if p._parked then return end
+    if p._parked then
+        if Preset.debug and not p._parkSkipLogged then
+            p._parkSkipLogged = true
+            print(("|cff33ccff[Preset]|r 停靠跳过(已停靠) 光环%s"):format(FmtAuraID(p.auraSpellID)))
+        end
+        return
+    end
+    if Preset.debug then
+        print(("|cff33ccff[Preset]|r 停靠开始 光环%s cd=%s"):format(FmtAuraID(p.auraSpellID), tostring(p.cd)))
+    end
     container:ClearAllPoints()
     container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
     if p.cd then
@@ -385,9 +394,10 @@ local function ParkContainer(container, p)
         p.cd:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -9990, -9990)
     end
     p._parked = true
+    p._parkSkipLogged = nil
     p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
     if Preset.debug then
-        print(("|cff33ccff[Preset]|r 停靠 光环%s cd=%s"):format(FmtAuraID(p.auraSpellID), tostring(p.cd)))
+        print(("|cff33ccff[Preset]|r 停靠完成 光环%s"):format(FmtAuraID(p.auraSpellID)))
     end
 end
 
@@ -497,10 +507,13 @@ local function UpdatePresetAura(p)
     if not btn then
         -- 只提示一次（找到后重置），避免 ticker/重试反复刷屏
         if Preset.debug and not p._btnMissingLogged then
-            print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】"):format(FmtAuraID(p.auraSpellID), p.actionSpellID))
+            print(("|cff33ccff[Preset]|r 光环%s → 技能%s 按钮【未找到】parked=%s"):format(FmtAuraID(p.auraSpellID), p.actionSpellID, tostring(p._parked)))
             p._btnMissingLogged = true
         end
-        ParkContainer(container, p)
+        local ok, err = pcall(ParkContainer, container, p)
+        if not ok and Preset.debug then
+            print(("|cff33ccff[Preset]|r 停靠异常 光环%s: %s"):format(FmtAuraID(p.auraSpellID), tostring(err)))
+        end
         return
     end
     p._btnMissingLogged = nil
@@ -513,7 +526,10 @@ local function UpdatePresetAura(p)
         end
     end
     if not PositionContainer(container, btn, p) then
-        ParkContainer(container, p)
+        local ok, err = pcall(ParkContainer, container, p)
+        if not ok and Preset.debug then
+            print(("|cff33ccff[Preset]|r 停靠异常(定位失败分支) 光环%s: %s"):format(FmtAuraID(p.auraSpellID), tostring(err)))
+        end
         return
     end
     p._parked = nil
