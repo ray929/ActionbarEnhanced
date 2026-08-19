@@ -523,6 +523,13 @@ local function UpdatePresetAura(p)
         local okA, _, actionSpellID = pcall(GetActionInfo, p.button.action)
         local curName = (okA and actionSpellID) and C_Spell.GetSpellName(actionSpellID) or nil
         if curName ~= actionName then
+            -- 诊断（去重）：记录验证失效时刻按钮 action 的实际内容，用于区分
+            -- 「按钮已换技能」（正常翻页失效）与「action 指向异常」（外部条插件场景）
+            if Preset.debug and not p._verifyFailLogged then
+                print(("|cff33ccff[Preset]|r 缓存验证失效 光环%s: btn.action=%s 内容=%s 期望=%s")
+                    :format(FmtAuraID(p.auraSpellID), tostring(p.button.action), tostring(curName), tostring(actionName)))
+                p._verifyFailLogged = true
+            end
             p.button = nil
         end
     end
@@ -543,6 +550,7 @@ local function UpdatePresetAura(p)
         return
     end
     p._btnMissingLogged = nil
+    p._verifyFailLogged = nil
     if Preset.debug then
         -- 按钮名变化时打印（诊断切页后匹配到了哪个按钮）
         local btnName = btn.GetName and btn:GetName() or tostring(btn)
@@ -887,6 +895,10 @@ evFrame:SetScript("OnEvent", function(_, event)
         -- ⚠️ 绝不【立即】RefreshAll：ACTIONBAR_PAGE_CHANGED 等事件在 SetActionBarPage 的保护上下文
         --    同步触发，立即操作容器(SetPoint/SetSize)会被 taint/block，导致倒计时框错位/变色/变大小。
         --    改为延迟重试，且每次重试前都清 p.button（否则第一次会把过渡态按钮缓存进 p.button 固化）。
+        if Preset.debug then
+            local okP, page = pcall(C_ActionBar.GetActionBarPage)
+            print(("|cff33ccff[Preset]|r 动作条事件 %s page=%s"):format(event, okP and tostring(page) or "?"))
+        end
         local function invalidateButtons()
             for _, p in ipairs(ACTIVE_PRESETS) do
                 p.button = nil
