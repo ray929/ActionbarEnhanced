@@ -14,7 +14,8 @@
 --   · 通过 ActionBarButtonEventsFrame:ForEachFrame 注册所有原生动作条按钮（含 Multibar 等），
 --     hook 其 Update / UpdateUsable（均加 type=="function" 保护），并 hook 全局
 --     ActionButton_UpdateCooldown 与 ActionButton_UpdateRangeIndicator 安全函数，
---     以及 cooldown:OnCooldownDone 时刷新；同时 hook RegisterFrame 覆盖登录后动态创建的按钮。
+--     以及 cooldown 的 OnCooldownDone / OnShow / OnHide 时刷新；同时 hook RegisterFrame 覆盖
+--     登录后动态创建的按钮。
 --     ⚠️ 零售版动作按钮【实例】没有 UpdateCooldown 方法，只能钩全局 ActionButton_UpdateCooldown。
 --   · CD 判定：CooldownInfo.isOnGCD 字段「只在响应 SPELL_UPDATE_COOLDOWN 事件时可信」，任意时机
 --     读它会把 GCD 误判成真实冷却导致全灰。故只在 SPELL_UPDATE_COOLDOWN 事件里读取并缓存每个按钮的
@@ -273,6 +274,19 @@ local function RegisterButton(btn)
     if btn.cooldown then
         btn.cooldown:HookScript("OnCooldownDone", function()
             BC._cdCache[btn] = false       -- 冷却结束，直接清缓存
+            BC.UpdateButton(btn)
+        end)
+        -- 翻页/姿态/载具/占据切换后按钮换了技能，_cdCache 仍持有旧技能的冷却态（页面事件只
+        -- 应用缓存不重算）→ 残留错误灰显。冷却帧被引擎隐藏 = 无冷却漩涡 = 必然不在真实 CD，
+        -- 缓存安全置 false（即使误触「条隐藏」场景，条重现后下次施法也会全量重算自愈）。
+        btn.cooldown:HookScript("OnHide", function()
+            BC._cdCache[btn] = false
+            BC.UpdateButton(btn)
+        end)
+        -- OnShow 只补视觉刷新、绝不写缓存：显示中的漩涡可能是 GCD，而 isOnGCD 仅在
+        -- SPELL_UPDATE_COOLDOWN 事件里可信（红线），不可在此判定真假 CD；翻到「本就在 CD
+        -- 的新技能」暂保持彩色，下次任意施法即自愈（彩优于残留灰）。
+        btn.cooldown:HookScript("OnShow", function()
             BC.UpdateButton(btn)
         end)
     end
