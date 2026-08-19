@@ -230,12 +230,6 @@ local function InitAuraPreset(p)
     if p._initFailed then return false end  -- 上次战斗中创建失败 → 等脱战重试
     local unit = p.unit or "player"
     local filter = p.filter or "HELPFUL"
-    -- 统一追加 |PLAYER：预设语义=「玩家自己施放的光环」（含自身增益与目标减益），
-    -- 不追踪别人施加的同名光环（如其他萨满在目标身上施放的烈焰震击，2026-08-19 踩坑）。
-    -- 数据里显式写了含 PLAYER 的 filter（如 "HARMFUL|PLAYER"）则不重复追加。
-    if not filter:find("PLAYER", 1, true) then
-        filter = filter .. "|PLAYER"
-    end
 
     local container = CreateFrame("AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
     container:SetFrameStrata("HIGH")

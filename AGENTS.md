@@ -20,7 +20,7 @@
 | Settings.lua | 全局样式常量（颜色/字号/字体/描边），必须最先加载；外观不存盘 |
 | Manual.lua | 手动绑定：spellID→目标技能，倒计时/层数/发光/反发光渲染（全栈单文件） |
 | AutoCDM.lua | 自动发现：CDM 启用的增益自动铺到匹配按钮（BuffIconCooldownViewer） |
-| PresetData.lua | 预设法术/光环配置（用户编辑区，SELF_BUFFS/PRESETS 表），必须先于 Preset.lua 加载；改预设只动此文件；filter 由 Preset.lua 自动追加 `|PLAYER`（只追踪本人施放的光环，含团队增益/目标减益；数据显式写 PLAYER 不冲突不重复） |
+| PresetData.lua | 预设法术/光环配置（用户编辑区，SELF_BUFFS/PRESETS 表），必须先于 Preset.lua 加载；改预设只动此文件 |
 | Preset.lua | 预设光环/武器附魔渲染（CDM 不渲染的），走官方 AuraContainer 通道；配置从 BAR.PresetData 读取，文件本身不含法术表 |
 | CooldownGlow.lua | CDM「主冷却」技能就绪 ProcGlow（绿，可配常亮/1–5s） |
 | TrinketGlow.lua | 饰品就绪 ProcGlow（黄） |
