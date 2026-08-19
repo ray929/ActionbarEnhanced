@@ -17,8 +17,9 @@ BAR.PresetData = {}
 --   auraSpellID   : 要追踪的【光环法术ID】（单个 number，或 {id1,id2} 数组，任一命中即显示）
 --   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID；该技能必须放在动作条上）
 --   unit(可选)/filter(可选) : "player" / "HELPFUL"(默认)
---   ⚠️ 目标身上的减益必须写 filter = "HARMFUL|PLAYER"（|PLAYER=只追踪玩家自己施放的）——
---      只写 "HARMFUL" 会把别人施加的同名减益也显示到你的技能按钮上（2026-08-19 烈焰震击踩坑）
+--   ⚠️ Preset.lua 会给所有 filter 自动追加 |PLAYER——只追踪玩家自己施放的光环，
+--      别人施加的同名 buff/debuff 不显示（2026-08-19 烈焰震击踩坑后的统一约定）。
+--      数据里无需手写；显式写了含 PLAYER 的 filter（如 "HARMFUL|PLAYER"）也不冲突。
 --
 -- 类型 B：武器临时附魔（weaponEnchant）— item enchant 通道（非 unit aura），【12.1 战斗中也能显示】
 --   presetType    : 必须写 "weaponEnchant"
