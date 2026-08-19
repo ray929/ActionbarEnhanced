@@ -513,8 +513,21 @@ local function UpdatePresetAura(p)
     local container = p.container
 
     -- 解析显示目标按钮（缓存，找不到时 ticker 定期重试；该 actionSpellID 必须放在动作条上）
+    -- ⚠️ 缓存自愈（2026-08-19 修「脱战后切页数字滞留」）：翻页后同一按钮换了技能，但
+    --    UNIT_AURA 驱动的 RefreshAll 不清缓存；若 p.button 残留旧按钮（翻页过渡期 Find 扫到
+    --    旧数据/页面事件漏网），每次刷新都会把容器拉回旧按钮位置 → 倒计时数字常驻不消失。
+    --    每 tick 用一次 GetActionInfo 名字比对验证缓存（与 Find 匹配逻辑对称），失效即作废重找。
+    --    stance 按钮（action=nil）跳过验证：其内容不随翻页变化，验证反而每 tick 触发全量重扫。
+    local actionName = C_Spell.GetSpellName(p.actionSpellID)
+    if p.button and p.button.action ~= nil then
+        local okA, _, actionSpellID = pcall(GetActionInfo, p.button.action)
+        local curName = (okA and actionSpellID) and C_Spell.GetSpellName(actionSpellID) or nil
+        if curName ~= actionName then
+            p.button = nil
+        end
+    end
     if not p.button then
-        p.button = FindActionButtonForSpellName(C_Spell.GetSpellName(p.actionSpellID))
+        p.button = FindActionButtonForSpellName(actionName)
     end
     local btn = p.button
     if not btn then
@@ -783,12 +796,35 @@ function Preset.Status()
                     exp and ("%.0f秒"):format(exp) or "无",
                     (p.overlay and p.overlay:IsShown()) and "显示" or "隐藏"))
         else
-            print(("  光环%s → 技能[%s/%s] 按钮:%s 容器:%s 光环显示:%s")
+            -- 诊断增强：按钮名/停靠态/容器锚点坐标/光环帧尺寸（滞留 bug 定位用）
+            local btnName = "无"
+            if btn then
+                btnName = (btn.GetName and btn:GetName()) or "?"
+            end
+            local cPos = p.container and "无锚点" or "未建"
+            if p.container then
+                local okP, pt, _rel, relPt, x, y = pcall(p.container.GetPoint, p.container, 1)
+                if okP and pt then
+                    cPos = ("%s→%s(%.0f,%.0f)"):format(tostring(pt), tostring(relPt), x or 0, y or 0)
+                end
+            end
+            local abSize = ""
+            if p.auraButton then
+                local okS, w, h = pcall(p.auraButton.GetSize, p.auraButton)
+                if okS and w and w > 0 then
+                    abSize = (" 光环帧:%.0f×%.0f"):format(w, h)
+                else
+                    abSize = " 光环帧:0(塌缩!)"
+                end
+            end
+            print(("  光环%s → 技能[%s/%s] 按钮:%s 停靠:%s 容器:%s%s 光环显示:%s")
                 :format(
                     FmtAuraID(p.auraSpellID),
                     p.actionSpellID, actionName,
-                    btn and "找到" or "未找到",
-                    p.container and "已建" or (p._initFailed and "建失败(等脱战)" or "未建"),
+                    btnName,
+                    p._parked and "是" or "否",
+                    cPos .. (p.container and "" or (p._initFailed and "(建失败等脱战)" or "")),
+                    abSize,
                     AuraFrameShown(p) and "显示" or "隐藏"))
         end
     end
