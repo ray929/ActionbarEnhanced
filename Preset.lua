@@ -353,11 +353,11 @@ local function PositionContainer(container, btn, p)
             p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
         end
     end
-    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖）。
-    -- btn(AuraButton) 固定尺寸（不 SetAllPoints 容器）：容器尺寸被覆盖成 ≈1x1 时
-    -- btn 不会跟着缩，cd 相对锚定 btn 的布局保持稳定。
-    -- ⚠️ 战斗中(secret)对 AuraButton 的 SetSize 可能被 Forbidden 拦截 → pcall，
-    --    失败保持旧尺寸（按钮尺寸通常不变），下次脱战自愈。
+    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖：
+    -- OnLayoutComplete 会按内容收缩容器；容器被收缩→我们重设→稳定）。
+    -- btn 尽力升到按钮尺寸（36 初始 → 按钮实际大小），包 pcall——
+    -- initializeFrame 之外对 AuraButton 的 SetSize 可能被 Forbidden 拦截，
+    -- 失败保持 36×36（仅倒计时区域略小，不影响可见性），下次脱战自愈。
     container:SetSize(width * r, height * r)
     if p and p.auraButton then
         pcall(p.auraButton.SetSize, p.auraButton, width * r, height * r)
@@ -404,14 +404,21 @@ end
 --    InitializeInboundScriptObject 禁止之后改 parent），之后由暴雪驱动内容：
 --     · cd  → ApplyDurationCooldown → SetCooldownFromDurationObject（倒计时数字自带）
 --     · fs  → ApplyApplicationCount → SetText（层数，>1 才显示）
--- ⚠️ btn 不 SetAllPoints(container) 而用固定尺寸：flow layout 只接管 btn 的【位置】
---    （SetPoint 相对 container），尺寸归 addon 管——容器尺寸被 flow layout 异步覆盖成
---    ≈1x1 时 btn 不缩水，cd/fs 相对锚定 btn 的布局保持稳定（PositionContainer 每秒纠正尺寸）。
+-- ⚠️ btn 几何【SetSize + SetAllPoints(container) 双保险】（CustomAuraContainerFlowLayoutMixin 源码核实）：
+--    · 暴雪 flow layout 的 ApplyElementLayout 会对 slot 帧 ClearAllPoints 后以【单锚点】重锚，
+--      SetAllPoints 的锚定派生尺寸随之丢失——必须先有显式 SetSize，否则塌缩 0×0 → 整个预设不可见
+--    · SetAllPoints 保证首次布局运行前的过渡期 btn 跟随容器（停靠/挪容器即时跟随）
+--    · GetElementSize 读 element:GetSize()——框架不负责 slot 帧尺寸，显式尺寸是唯一可靠来源
+--    · 两调用均在 initializeFrame 特权上下文内，仍包 pcall 防御（失败会打印诊断）
 local function SetupAuraButton(p, btn)
     if Preset.debug then
         print(("|cff33ccff[Preset]|r 光环帧初始化 光环%s（若战斗中切页后重复出现=暴雪重建了光环帧）"):format(FmtAuraID(p.auraSpellID)))
     end
-    pcall(btn.SetSize, btn, 36, 36)
+    local okSize = pcall(btn.SetSize, btn, 36, 36)
+    local okAll = pcall(btn.SetAllPoints, btn, p.container)
+    if Preset.debug then
+        print(("|cff33ccff[Preset]|r 光环%s 帧几何 SetSize=%s SetAllPoints=%s"):format(FmtAuraID(p.auraSpellID), tostring(okSize), tostring(okAll)))
+    end
     local cd = CreateFrame("Cooldown", nil, btn)
     cd:SetDrawSwipe(false)
     cd:SetDrawEdge(false)
