@@ -4,9 +4,9 @@
 >
 > 一站式增强魔兽世界【原生动作条】的功能合集。不替换、不重排动作条——你的动作条保持 100% 暴雪原生，只是变得好用得多。
 
-> **About this addon:** it is made primarily for the author's own use and for friends to make the game easier to play. It is shared in the hope it helps, but it is not a commercial product.
+> **About this addon:** it is made primarily for the author's own use and for friends to make the game easier to play. Updates and quality are not guaranteed.
 >
-> **关于本插件：** 主要是为作者本人和朋友方便游戏而制作，分享出来希望能帮到你，但它并非商业产品。
+> **关于本插件：** 主要是为作者本人和朋友方便游戏而制作。不保证更新与质量。
 
 ## Features / 功能
 
