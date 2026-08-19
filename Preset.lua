@@ -304,28 +304,22 @@ end
 -- =========================================================
 -- 类型 A：unit aura —— 12.1 AuraContainer 暴雪渲染层
 -- =========================================================
--- 重设 AuraButton 内倒计时框锚点。
--- ⚠️ 传坐标时用【绝对屏幕坐标】锚到 UIParent——AuraContainer 的 flow layout 会在光环变化/切目标时
---    异步把容器尺寸覆盖成空布局值(≈1x1)，若 cd 相对 btn/容器锚定会跟着错位；绝对锚定不受影响。
---    无坐标时（initializeFrame 阶段）退化为相对 btn 的临时锚点，之后定位时被绝对锚点覆盖。
-local function LayoutAuraChildren(p, left, bottom, width, height, r)
-    local cd = p.cd
-    if not cd then return end
-    if left then
-        r = r or 1
-        local rx, ry = left * r, bottom * r
-        local rw, rh = width * r, height * r
+-- 重设 AuraButton 内倒计时框锚点（统一【相对锚定 btn】）。
+-- ⚠️ 绝不绝对锚定 UIParent：cd 的 parent 是 AuraButton（Forbidden Aspect），
+--    战斗中(secret)对其 SetPoint 可能被拦截抛错 → 停靠时容器挪走而 cd 滞留原位（数字不消失）。
+--    相对锚定 btn 后，btn 由暴雪 flow layout 相对 container 定位 → 挪容器全链自动跟随。
+--    容器尺寸被 flow layout 异步覆盖(≈1x1)的错位由「btn 固定尺寸（见 SetupAuraButton）+
+--    PositionContainer 每秒重设容器/btn 尺寸」纠正，不再依赖 cd 绝对锚定。
+local function LayoutAuraChildren(p)
+    local cd, btn = p.cd, p.auraButton
+    if not cd or not btn then return end
+    local ok, w, h = pcall(btn.GetSize, btn)
+    if not ok or not w or w <= 0 then w, h = 36, 36 end
+    pcall(function()
         cd:ClearAllPoints()
-        cd:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", rx + 1, ry - 6)
-        cd:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", rx + rw * 0.62, ry + rh * 0.62 - 7)
-    else
-        local btn = p.auraButton
-        if not btn then return end
-        local w, h = btn:GetSize()
-        if not w or w <= 0 then w, h = 36, 36 end
         cd:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, -6)
         cd:SetPoint("TOPRIGHT", btn, "BOTTOMLEFT", w * 0.62, h * 0.62 - 7)
-    end
+    end)
 end
 
 -- 把容器定位到动作按钮之上（屏幕坐标，绝不锚到按钮；含缩放换算）。
@@ -359,10 +353,16 @@ local function PositionContainer(container, btn, p)
             p._rectL, p._rectB, p._rectW, p._rectH = left, bottom, width, height
         end
     end
-    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖）；
-    -- cd 用绝对屏幕坐标锚定，容器尺寸即使被覆盖也不会让倒计时框错位
+    -- 尺寸与子控件布局每次重做（对抗暴雪 flow layout 的异步尺寸覆盖）。
+    -- btn(AuraButton) 固定尺寸（不 SetAllPoints 容器）：容器尺寸被覆盖成 ≈1x1 时
+    -- btn 不会跟着缩，cd 相对锚定 btn 的布局保持稳定。
+    -- ⚠️ 战斗中(secret)对 AuraButton 的 SetSize 可能被 Forbidden 拦截 → pcall，
+    --    失败保持旧尺寸（按钮尺寸通常不变），下次脱战自愈。
     container:SetSize(width * r, height * r)
-    LayoutAuraChildren(p, left, bottom, width, height, r)
+    if p and p.auraButton then
+        pcall(p.auraButton.SetSize, p.auraButton, width * r, height * r)
+    end
+    LayoutAuraChildren(p)
     return true
 end
 
@@ -372,9 +372,12 @@ end
 --    战斗中(secret)解析光环失败 → 光环帧清空，要等下一次 UNIT_AURA（通常=脱战）才恢复——
 --    即「切走动作条再切回、倒计时消失到脱战」的 bug。
 --    停靠屏幕外保持 IsVisible=true：事件注册与倒计时持续在线，切回重定位即瞬时恢复。
---    cd 是绝对屏幕坐标锚到 UIParent 的（见 LayoutAuraChildren），不随容器走，需一并停靠；
---    fs 相对锚定 btn 自动跟随。必须清矩形缓存：切回后按钮矩形若恰好与旧缓存相同，
---    PositionContainer 会判"未变"跳过 SetPoint → 容器留在屏幕外。
+-- ⚠️ 只挪容器本身（addon 自己的帧，SetPoint 战斗安全）：btn(AuraButton) 由暴雪 flow layout
+--    相对 container 定位，cd/fs 相对锚定 btn → 全链自动跟随，战斗中零操作 Forbidden 对象
+--    （旧版 cd 绝对锚定 UIParent 需单独挪动，战斗中(secret) SetPoint 被 Forbidden 拦截
+--     → 容器走了 cd 滞留原位 = 数字不消失的 bug）。
+--    必须清矩形缓存：切回后按钮矩形若恰好与旧缓存相同，PositionContainer 会判"未变"
+--    跳过 SetPoint → 容器留在屏幕外。
 local function ParkContainer(container, p)
     if p._parked then
         if Preset.debug and not p._parkSkipLogged then
@@ -384,15 +387,10 @@ local function ParkContainer(container, p)
         return
     end
     if Preset.debug then
-        print(("|cff33ccff[Preset]|r 停靠开始 光环%s cd=%s"):format(FmtAuraID(p.auraSpellID), tostring(p.cd)))
+        print(("|cff33ccff[Preset]|r 停靠开始 光环%s"):format(FmtAuraID(p.auraSpellID)))
     end
     container:ClearAllPoints()
     container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
-    if p.cd then
-        p.cd:ClearAllPoints()
-        p.cd:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -10000, -10000)
-        p.cd:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -9990, -9990)
-    end
     p._parked = true
     p._parkSkipLogged = nil
     p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
@@ -406,17 +404,21 @@ end
 --    InitializeInboundScriptObject 禁止之后改 parent），之后由暴雪驱动内容：
 --     · cd  → ApplyDurationCooldown → SetCooldownFromDurationObject（倒计时数字自带）
 --     · fs  → ApplyApplicationCount → SetText（层数，>1 才显示）
+-- ⚠️ btn 不 SetAllPoints(container) 而用固定尺寸：flow layout 只接管 btn 的【位置】
+--    （SetPoint 相对 container），尺寸归 addon 管——容器尺寸被 flow layout 异步覆盖成
+--    ≈1x1 时 btn 不缩水，cd/fs 相对锚定 btn 的布局保持稳定（PositionContainer 每秒纠正尺寸）。
 local function SetupAuraButton(p, btn)
     if Preset.debug then
         print(("|cff33ccff[Preset]|r 光环帧初始化 光环%s（若战斗中切页后重复出现=暴雪重建了光环帧）"):format(FmtAuraID(p.auraSpellID)))
     end
-    btn:SetAllPoints(p.container)
+    pcall(btn.SetSize, btn, 36, 36)
     local cd = CreateFrame("Cooldown", nil, btn)
     cd:SetDrawSwipe(false)
     cd:SetDrawEdge(false)
     cd:SetHideCountdownNumbers(false)
     btn:SetDurationCooldown(cd)
     p.cd = cd
+    p.cdStyled = nil  -- 新 cd 的倒计时数字是新 FontString，样式需重新应用
     local fs = btn:CreateFontString(nil, "OVERLAY")
     fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 5, -5)
     fs:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
@@ -443,7 +445,7 @@ local function InitAuraPreset(p)
     container:SetUnit(unit)
     container:SetEnabled(true)
     -- ⚠️ 先挂引用：AddAuraSlot 的 initializeFrame 回调【同步】执行，
-    --   SetupAuraButton 里要用 p.container 做 SetAllPoints
+    --   SetupAuraButton 里要读 p.container 建立关联
     p.container = container
 
     -- 归一化光环 ID（支持单个 number 或 {id1,id2} 数组，任一命中即显示）
@@ -475,7 +477,9 @@ end
 
 -- Cooldown 倒计时数字 FontString 要等暴雪首次 SetCooldownFromDurationObject 后才存在，
 -- 用低频 ticker 轮询，设置一次字体/颜色后标记完成（幂等、廉价）。
--- ⚠️ 数字 FontString 带 secret aspect，SetFont/SetTextColor 包 pcall 防御。
+-- ⚠️ 数字 FontString 带 secret aspect，SetFont/SetTextColor 包 pcall 防御；
+--    失败【不标记完成】——战斗中(secret)被拦截时保持重试，脱战后成功上色
+--    （旧版失败也标记 → 数字永远白色）。
 local function ApplyCountdownFont(p)
     local cd = p.cd
     if not cd or p.cdStyled then return end
@@ -483,11 +487,13 @@ local function ApplyCountdownFont(p)
     if not cds then return end
     local unit = p.unit or "player"
     local c = (S.GetTimeColor and S.GetTimeColor(unit, false)) or S.TIME_COLOR_OTHER_BUFF or { 1, 1, 0 }
-    pcall(function()
+    local ok = pcall(function()
         cds:SetFont(S.FONT, S.FONT_SIZE, S.OUTLINE)
         cds:SetTextColor(c[1], c[2], c[3])
     end)
-    p.cdStyled = true
+    if ok then
+        p.cdStyled = true
+    end
 end
 
 local function UpdatePresetAura(p)
