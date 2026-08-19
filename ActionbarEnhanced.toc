@@ -33,4 +33,5 @@ HideActionBarBorders.lua
 DisableAutoAddSpells.lua
 RemoveExtraActionButtonTexture.lua
 ButtonClickThrough.lua
+PresetData.lua
 Preset.lua
