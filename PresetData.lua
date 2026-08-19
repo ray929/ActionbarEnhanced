@@ -17,6 +17,8 @@ BAR.PresetData = {}
 --   auraSpellID   : 要追踪的【光环法术ID】（单个 number，或 {id1,id2} 数组，任一命中即显示）
 --   actionSpellID : 覆盖显示到哪个技能按钮（该技能的法术ID；该技能必须放在动作条上）
 --   unit(可选)/filter(可选) : "player" / "HELPFUL"(默认)
+--   ⚠️ 目标身上的减益必须写 filter = "HARMFUL|PLAYER"（|PLAYER=只追踪玩家自己施放的）——
+--      只写 "HARMFUL" 会把别人施加的同名减益也显示到你的技能按钮上（2026-08-19 烈焰震击踩坑）
 --
 -- 类型 B：武器临时附魔（weaponEnchant）— item enchant 通道（非 unit aura），【12.1 战斗中也能显示】
 --   presetType    : 必须写 "weaponEnchant"
@@ -43,7 +45,7 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "DEMONHUNTER", auraSpellID = 212800, actionSpellID = 212800 }, -- 疾影（减伤）
     { class = "DEMONHUNTER", auraSpellID = 162264, actionSpellID = 191427 }, -- 恶魔变形（光环 162264 → 技能 191427，爆发/减伤）
     -- 猎人 HUNTER（减伤/爆发）
-    { class = "HUNTER", auraSpellID = 212431, actionSpellID = 212431 , unit = "target", filter = "HARMFUL" },    -- 爆炸射击
+    { class = "HUNTER", auraSpellID = 212431, actionSpellID = 212431 , unit = "target", filter = "HARMFUL|PLAYER" },    -- 爆炸射击
     { class = "HUNTER", auraSpellID = 186265, actionSpellID = 186265 },  -- 灵龟守护（减伤）
     { class = "HUNTER", auraSpellID = 264735, actionSpellID = 264735 },  -- 优胜劣汰（减伤）
     { class = "HUNTER", auraSpellID = 385540, actionSpellID = 109304 },  -- 意气风发（减伤）
@@ -75,8 +77,8 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "SHAMAN", auraSpellID = 191634, actionSpellID = 191634 },  -- 风暴守护者（爆发）
     { class = "SHAMAN", auraSpellID = 2825, actionSpellID = 2825 },      -- 嗜血（团队急速）
     { class = "SHAMAN", auraSpellID = 32182, actionSpellID = 32182 },    -- 英勇（团队急速，联盟版）
-    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470057, unit = "target", filter = "HARMFUL" },
-    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL" },
+    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470057, unit = "target", filter = "HARMFUL|PLAYER" },
+    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL|PLAYER" },
     -- 盗贼 ROGUE（武器涂毒：光环 = 技能 同 ID）
     { class = "ROGUE", auraSpellID = 381664, actionSpellID = 381664 },  -- 增效毒药 Amplifying
     { class = "ROGUE", auraSpellID = 2823, actionSpellID = 2823 },      -- 致命毒药 Deadly
@@ -113,9 +115,9 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "WARRIOR", auraSpellID = 871, actionSpellID = 871 },       -- 盾墙（防战减伤）
     { class = "WARRIOR", auraSpellID = 18499, actionSpellID = 18499 },       -- 狂暴之怒
     { class = "WARRIOR", auraSpellID = 97463, actionSpellID = 97462 },       -- 集结呐喊
-    { class = "WARRIOR", auraSpellID = 1160, actionSpellID = 1160 , unit = "target", filter = "HARMFUL" },       -- 挫志怒吼
-    { class = "WARRIOR", auraSpellID = 12323, actionSpellID = 12323 , unit = "target", filter = "HARMFUL" },       -- 刺耳怒吼
-    { class = "WARRIOR", auraSpellID = 386071, actionSpellID = 386071 , unit = "target", filter = "HARMFUL" },       -- 瓦解怒吼
+    { class = "WARRIOR", auraSpellID = 1160, actionSpellID = 1160 , unit = "target", filter = "HARMFUL|PLAYER" },       -- 挫志怒吼
+    { class = "WARRIOR", auraSpellID = 12323, actionSpellID = 12323 , unit = "target", filter = "HARMFUL|PLAYER" },       -- 刺耳怒吼
+    { class = "WARRIOR", auraSpellID = 386071, actionSpellID = 386071 , unit = "target", filter = "HARMFUL|PLAYER" },       -- 瓦解怒吼
     { class = "WARRIOR", auraSpellID = 12975, actionSpellID = 12975 },   -- 破釜沉舟（防战减伤）
     { class = "WARRIOR", auraSpellID = 23920, actionSpellID = 23920 },   -- 法术反射（减伤）
     { class = "WARRIOR", auraSpellID = 184364, actionSpellID = 184364 }, -- 狂怒回复（自疗）
@@ -142,7 +144,7 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "PRIEST", auraSpellID = 19236, actionSpellID = 19236 },    -- 绝望祷言
     { class = "PRIEST", auraSpellID = 17, actionSpellID = 17 },    -- 真言术盾
     { class = "PRIEST",  auraSpellID = 121557, actionSpellID = 121536 }, -- 羽毛
-    { class = "PRIEST", auraSpellID = 589, actionSpellID = 589, unit = "target", filter = "HARMFUL" }, -- 暗影术痛
+    { class = "PRIEST", auraSpellID = 589, actionSpellID = 589, unit = "target", filter = "HARMFUL|PLAYER" }, -- 暗影术痛
     -- 牧师 PRIEST（减伤/爆发；光环=技能同ID）
     { class = "PRIEST", auraSpellID = 33206, actionSpellID = 33206 },    -- 痛苦压制（减伤）
     { class = "PRIEST", auraSpellID = 47788, actionSpellID = 47788 },    -- 守护之魂（减伤/保命）
