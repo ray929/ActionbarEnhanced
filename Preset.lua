@@ -68,8 +68,16 @@ local SELF_BUFFS = {
     { class = "DEMONHUNTER", auraSpellID = 212800, actionSpellID = 212800 }, -- 疾影（减伤）
     { class = "DEMONHUNTER", auraSpellID = 162264, actionSpellID = 191427 }, -- 恶魔变形（光环 162264 → 技能 191427，爆发/减伤）
     -- 猎人 HUNTER（减伤/爆发）
+    { class = "HUNTER", auraSpellID = 212431, actionSpellID = 212431 , unit = "target", filter = "HARMFUL" },    -- 爆炸射击
     { class = "HUNTER", auraSpellID = 186265, actionSpellID = 186265 },  -- 灵龟守护（减伤）
+    { class = "HUNTER", auraSpellID = 264735, actionSpellID = 264735 },  -- 优胜劣汰（减伤）
+    { class = "HUNTER", auraSpellID = 385540, actionSpellID = 109304 },  -- 意气风发（减伤）
     { class = "HUNTER", auraSpellID = 19574, actionSpellID = 19574 },    -- 狂野怒火（爆发）
+    { class = "HUNTER", auraSpellID = 288613, actionSpellID = 288613 },    -- 百发百中（爆发）
+    { class = "HUNTER", auraSpellID = 34477, actionSpellID = 34477 },    -- 误导(生效前)
+    { class = "HUNTER", auraSpellID = 35079, actionSpellID = 34477 },    -- 误导(生效后)
+    { class = "HUNTER", auraSpellID = 257622, actionSpellID = 260243 },    -- 技巧射击
+    { class = "HUNTER", auraSpellID = 6197, actionSpellID = 6197 },    -- 鹰眼术
     -- 武僧 MONK（减伤/爆发）
     { class = "MONK", auraSpellID = 122278, actionSpellID = 122278 },    -- 躯不坏（减伤）
     { class = "MONK", auraSpellID = 122783, actionSpellID = 122783 },    -- 散魔功（减伤）
@@ -77,6 +85,7 @@ local SELF_BUFFS = {
     { class = "MONK", auraSpellID = 116680, actionSpellID = 116680 },    -- 雷光聚神茶（爆发）
     { class = "MONK", auraSpellID = 137639, actionSpellID = 137639 },    -- 风火雷电（爆发）
     -- 萨满 SHAMAN
+    { class = "SHAMAN", auraSpellID = 1219480, actionSpellID = 114050 },    -- 升腾
     { class = "SHAMAN", auraSpellID = 383648, actionSpellID = 974 },      -- 大地之盾（光环 383648 → 技能 974）
     { class = "SHAMAN", auraSpellID = 462854, actionSpellID = 462854 },   -- 天怒（光环=技能）
     { class = "SHAMAN", auraSpellID = 192106, actionSpellID = 192106 },   -- 闪电之盾
