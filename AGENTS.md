@@ -48,6 +48,7 @@
 - secret 值 **不能靠 `type()` 预判**（12.1 起 secret 的 type() 可返回 number/boolean/string 等），统一用 `issecretvalue` 判定；对外部帧/数据的访问一律 `pcall` 包裹兜底。
 - 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。
 - 冷却数据：`GetInventoryItemCooldown` 返回传统三值 number（安全，TrinketGlow 用）；`C_ActionBar.GetActionCooldown` 的 CooldownInfo 是 **secret**（勿用）。
+- 冷却缓存坑（ButtonColor，2026-08-18 修）：`_cdCache` 以按钮为 key，翻页/姿态/载具/占据切换后同一按钮换了技能 → 缓存持有旧技能冷却态（页面事件只应用不重算，isOnGCD 又不可跨时机重读）→ 残留错误灰显（进载具不施法可一直挂灰到下次施法）。修正：钩 cooldown 帧 **OnHide**（引擎隐藏 = 无漩涡 = 必然非真实 CD，缓存安全置 false）+ OnShow（只补刷新不写缓存：漩涡可能是 GCD，不可置 true）。取舍：翻到「本就在 CD 的新技能」保持彩色，下次任意施法（SPELL_UPDATE_COOLDOWN 全量重算）自愈——彩优于残留灰。GreyOnCooldown 2.0.2 同款 hook 点。
 - 按 spellID 定点的 `GetPlayerAuraBySpellID` 等在 12.1 仍存在但标注 `RequiresNonSecretAura`，战斗中仅白名单光环可用——不要依赖。
 
 ## 4. Taint / 安全帧坑
