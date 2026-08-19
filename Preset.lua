@@ -386,6 +386,9 @@ local function ParkContainer(container, p)
     end
     p._parked = true
     p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
+    if Preset.debug then
+        print(("|cff33ccff[Preset]|r 停靠 光环%s cd=%s"):format(FmtAuraID(p.auraSpellID), tostring(p.cd)))
+    end
 end
 
 -- initializeFrame 回调：暴雪创建 AuraButton 后，addon 注册子控件。
@@ -394,6 +397,9 @@ end
 --     · cd  → ApplyDurationCooldown → SetCooldownFromDurationObject（倒计时数字自带）
 --     · fs  → ApplyApplicationCount → SetText（层数，>1 才显示）
 local function SetupAuraButton(p, btn)
+    if Preset.debug then
+        print(("|cff33ccff[Preset]|r 光环帧初始化 光环%s（若战斗中切页后重复出现=暴雪重建了光环帧）"):format(FmtAuraID(p.auraSpellID)))
+    end
     btn:SetAllPoints(p.container)
     local cd = CreateFrame("Cooldown", nil, btn)
     cd:SetDrawSwipe(false)
@@ -498,6 +504,14 @@ local function UpdatePresetAura(p)
         return
     end
     p._btnMissingLogged = nil
+    if Preset.debug then
+        -- 按钮名变化时打印（诊断切页后匹配到了哪个按钮）
+        local btnName = btn.GetName and btn:GetName() or tostring(btn)
+        if btnName ~= p._lastBtnName then
+            print(("|cff33ccff[Preset]|r 光环%s → 匹配到按钮%s"):format(FmtAuraID(p.auraSpellID), tostring(btnName)))
+            p._lastBtnName = btnName
+        end
+    end
     if not PositionContainer(container, btn, p) then
         ParkContainer(container, p)
         return
@@ -811,6 +825,7 @@ evFrame:SetScript("OnEvent", function(_, event)
         local function invalidateButtons()
             for _, p in ipairs(ACTIVE_PRESETS) do
                 p.button = nil
+                p._lastBtnName = nil
                 p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
             end
         end
