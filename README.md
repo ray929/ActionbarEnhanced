@@ -87,6 +87,22 @@
 - Only Blizzard-native action bars are supported. 仅支持暴雪原生动作条。
 - Combat-safe by architecture — no protected data is read. 架构上战斗安全——不读取受保护数据。
 
+## Credits / 致谢
+
+This addon draws inspiration and techniques from the following addons and their authors — thank you!
+
+本插件借鉴了以下插件与作者的思路和实现，特此致谢：
+
+- CDMButtonAuras
+- VFlow
+- AyijeCDM
+- Matt's Action Bar Fonts & UI QoL
+- tullaRange
+- GreyOnCooldown
+- MiniTrinketGlow
+- DisableAutoAddSpells
+- Remove Extra Action Button Texture
+
 ## Disclaimer / 免责声明
 
 This is a third-party addon for World of Warcraft. Please read the features above and make sure you understand what it does **before** downloading and using it. The author provides it "as is" without any warranty, and you use it entirely at your own risk. The author is not responsible for any game issues, account actions, or other consequences arising from its use.
