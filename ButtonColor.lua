@@ -21,7 +21,11 @@
 --     读它会把 GCD 误判成真实冷却导致全灰。故只在 SPELL_UPDATE_COOLDOWN 事件里读取并缓存每个按钮的
 --     真实冷却态（BC._cdCache），其余刷新时机复用缓存，绝不跨时机读 isOnGCD。
 --     效果：有 CD 技能用了立即灰（使用即触发该事件），纯 GCD 波及的技能不灰，且不再全灰。
---     ⚠️ 也绝不可比较 startTime/duration/GetRemainingDuration 等 secret number 数值（tainted 下报错）。
+--     另一条无时机限制的合法通道：cooldown OnShow 时若脱战（数据明文），
+--     用 C_ActionBar.GetActionCooldownDuration(action, true)（ignoreGCD 在 C 层剔除 GCD）
+--     + DurationObject:GetRemainingDuration() 直接精算写缓存，解决翻页回来 CD 技能不灰的问题。
+--     ⚠️ 也绝不可比较 startTime/duration/GetRemainingDuration 等 secret number 数值（tainted 下报错；
+--     故 OnShow 精算前必查 HasSecretValues()，战斗中放弃精算）。
 --   · 资源判定用 C_ActionBar.IsUsableAction → (isUsable, notEnoughMana)，缺资源且不可用即变蓝。
 --   · 范围判定用 IsActionInRange(action) 明确为 false/0 才认作超范围（无射程技能返回 nil 不处理）。
 --   · 事件驱动刷新（合并同帧多次事件），事件兜底覆盖 CD / 资源 / 范围 / 翻页 / 姿态切换。
@@ -283,10 +287,24 @@ local function RegisterButton(btn)
             BC._cdCache[btn] = false
             BC.UpdateButton(btn)
         end)
-        -- OnShow 只补视觉刷新、绝不写缓存：显示中的漩涡可能是 GCD，而 isOnGCD 仅在
-        -- SPELL_UPDATE_COOLDOWN 事件里可信（红线），不可在此判定真假 CD；翻到「本就在 CD
-        -- 的新技能」暂保持彩色，下次任意施法即自愈（彩优于残留灰）。
+        -- OnShow：脱战时用 DurationObject 通道精算真实冷却并写缓存（ignoreGCD=true 在
+        -- C 层剔除 GCD，绕开 isOnGCD 的时序可信性问题，脱战数据明文可直接比较）；
+        -- 战斗中数据 secret，只补刷新不写缓存，待下次任意施法（SPELL_UPDATE_COOLDOWN
+        -- 全量重算）自愈——战斗中施法频繁，延迟无感。
         btn.cooldown:HookScript("OnShow", function()
+            if not InCombatLockdown() and btn.action
+                and C_ActionBar and C_ActionBar.GetActionCooldownDuration then
+                local ok, duration = pcall(C_ActionBar.GetActionCooldownDuration, btn.action, true)
+                if ok and type(duration) == "table" then
+                    local okS, hasSecret = pcall(duration.HasSecretValues, duration)
+                    if okS and not hasSecret then
+                        local okR, rem = pcall(duration.GetRemainingDuration, duration)
+                        if okR and type(rem) == "number" then
+                            BC._cdCache[btn] = rem > 0
+                        end
+                    end
+                end
+            end
             BC.UpdateButton(btn)
         end)
     end
