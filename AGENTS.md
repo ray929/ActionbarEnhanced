@@ -69,7 +69,8 @@
 - 与 CDMButtonAuras 同框共存时 hook 标记键要区分（本项目用 `__BARHooked`/`__BARAutoCDMHooked`），否则被对方抢先标记 → 永不 hook。
 - 登录时序：PLAYER_LOGIN 后 0.5s / 2s 双重延迟 Rescan 兜底（viewer 冷启动慢）。
 - 动作条切换（翻页/姿态/载具/御龙术）不一定触发 `ACTIONBAR_SLOT_CHANGED`，要同时监听 bonus/override/shapeshift/possess/multicast 等事件统一重建。
-- **按钮缓存必须每 tick 自愈验证（Preset，2026-08-19 修「脱战后切页数字滞留」）**：`p.button` 缓存依赖页面事件失效，但 UNIT_AURA 驱动的 RefreshAll **不清缓存**——若翻页过渡期 Find 扫到旧数据或事件漏网，缓存残留旧按钮，之后每次刷新都把容器拉回旧按钮位置 → 倒计时常驻不消失。正解：UpdatePresetAura 里用一次 `pcall(GetActionInfo, p.button.action)` + `GetSpellName` 名字比对（与 Find 匹配逻辑对称）验证缓存，失效即作废重找；stance 按钮（action=nil）跳过验证（内容不随翻页变，验证反而每 tick 触发全量重扫）。开销：预设数 × 2 次 API 调用/秒，可忽略。
+- **按钮缓存必须每 tick 自愈验证（Preset，2026-08-19 修「脱战后切页数字滞留」；2026-08-21 在 89ea1a8 回退基线上重做并扩展到 weaponEnchant）**：`p.button` 缓存依赖页面事件失效，但 UNIT_AURA 驱动的 RefreshAll **不清缓存**——若翻页过渡期 Find 扫到旧数据或事件漏网，缓存残留旧按钮，之后每次刷新都把容器拉回旧按钮位置 → 倒计时常驻不消失。正解：两类预设统一走 `ResolveButton(p, actionSpellID)`——`pcall(GetActionInfo, p.button.action)` + `GetSpellName` 名字比对（与 Find 匹配逻辑对称）验证缓存，失效即作废重找；stance 按钮（action=nil）跳过验证（内容不随翻页变，验证反而每 tick 触发全量重扫）。开销：预设数 × 2 次 API 调用/秒，可忽略。
+- **IsPlayerSpell 失效分支必须清理残留显示（Preset，2026-08-21 修「切专精后剩余时间滞留，需 reload 消除」）**：切专精后新专精没学 `actionSpellID` 时，UpdatePresetAura/UpdatePresetWeaponEnchant 的 `if not IsPlayerSpell(...)` 分支**绝不能裸 return**——容器/覆盖层滞留旧按钮位置：类型 A 光环未消散则倒计时常驻；类型 B 更隐蔽（武器附魔在武器上**跨专精持续存在**，EnchantTick 停止刷新后 Cooldown 冻结在旧按钮上长达数十分钟）。正解：该分支调用 `DeactivatePreset(p)` 隐藏容器/覆盖层 + 清 `p.button`/rect 缓存；同时事件集合加 `ACTIVE_TALENT_GROUP_CHANGED`（切专精：动作条整体换技能 + IsPlayerSpell 集合变化）触发 invalidateButtons+延迟 RefreshAll 及时清理，1s ticker 兜底自愈。切专精必然脱战，容器 Hide/再 Show 不触发战斗中 FullAuraRebuild 风险，可放心用 Hide（无需停靠屏幕外方案）。
 
 ## 6. LibCustomGlow 坑
 

@@ -134,6 +134,38 @@ local function FindActionButtonForSpellName(name)
     end
 end
 
+-- 按钮缓存解析（含自愈验证）：优先复用 p.button 缓存，但切专精/翻页后同一按钮
+-- 可能已换成别的技能（动作条事件漏网或过渡期固化），用 GetActionInfo+名字比对
+-- （与 Find 匹配逻辑对称）验证缓存，失效即作废重找——否则容器/覆盖层被拉回旧按钮，
+-- 倒计时滞留在错误技能上直到 reload（2026-08-21 修「切专精后剩余时间滞留」）。
+-- stance 按钮（action=nil）跳过验证：内容不随翻页/切专精变化，验证反而触发全量重扫。
+local function ResolveButton(p, actionSpellID)
+    local actionName = C_Spell.GetSpellName(actionSpellID)
+    if p.button and p.button.action ~= nil then
+        local okA, _, curSpellID = pcall(GetActionInfo, p.button.action)
+        local curName = (okA and curSpellID) and C_Spell.GetSpellName(curSpellID) or nil
+        if curName ~= actionName then
+            p.button = nil
+        end
+    end
+    if not p.button then
+        p.button = FindActionButtonForSpellName(actionName)
+    end
+    return p.button
+end
+
+-- 预设失活清理：切专精后新专精没学该技能时调用。
+-- 必须隐藏容器/覆盖层并清按钮缓存，否则残留显示滞留在旧按钮上：
+--   · 类型 A：容器停在旧位置，光环若未随切专精消散则倒计时常驻
+--   · 类型 B：武器附魔在武器上、跨专精持续存在，EnchantTick 停止刷新 → 倒计时冻结
+-- （切专精必然脱战，容器 Hide/再 Show 不触发战斗中 FullAuraRebuild 风险。）
+local function DeactivatePreset(p)
+    if p.container then p.container:Hide() end
+    if p.overlay then p.overlay:Hide() end
+    p.button = nil
+    p._rectL, p._rectB, p._rectW, p._rectH = nil, nil, nil, nil
+end
+
 -- =========================================================
 -- 类型 A：unit aura —— 12.1 AuraContainer 暴雪渲染层
 -- =========================================================
@@ -287,18 +319,17 @@ end
 
 local function UpdatePresetAura(p)
     if not p.auraSpellID or not p.actionSpellID then return end
-    -- 玩家没学该施放技能（如元素萨满没学水之护盾/闪电之盾）→ 跳过，不追踪不刷屏
+    -- 玩家没学该施放技能（如元素萨满没学水之护盾/闪电之盾）→ 清理残留并跳过
+    -- （切专精后技能不再可用时必须隐藏容器，否则倒计时滞留旧按钮直到 reload）
     if not IsPlayerSpell(p.actionSpellID) then
+        DeactivatePreset(p)
         return
     end
     if not InitAuraPreset(p) then return end
     local container = p.container
 
-    -- 解析显示目标按钮（缓存，找不到时 ticker 定期重试；该 actionSpellID 必须放在动作条上）
-    if not p.button then
-        p.button = FindActionButtonForSpellName(C_Spell.GetSpellName(p.actionSpellID))
-    end
-    local btn = p.button
+    -- 解析显示目标按钮（缓存+自愈验证，找不到时 ticker 定期重试；该 actionSpellID 必须放在动作条上）
+    local btn = ResolveButton(p, p.actionSpellID)
     if not btn then
         -- 只提示一次（找到后重置），避免 ticker/重试反复刷屏
         if Preset.debug and not p._btnMissingLogged then
@@ -426,14 +457,13 @@ end
 
 local function UpdatePresetWeaponEnchant(p)
     if not p.enchantID or not p.actionSpellID then return end
-    -- 玩家没学该施放技能（如元素萨满没学风怒/大地生命/唤潮护卫）→ 跳过，不追踪不刷屏
+    -- 玩家没学该施放技能（如元素萨满没学风怒/大地生命/唤潮护卫）→ 清理残留并跳过
+    -- （武器附魔在武器上、跨专精持续存在：切专精后不清覆盖层，倒计时会冻结滞留直到 reload）
     if not IsPlayerSpell(p.actionSpellID) then
+        DeactivatePreset(p)
         return
     end
-    if not p.button then
-        p.button = FindActionButtonForSpellName(C_Spell.GetSpellName(p.actionSpellID))
-    end
-    local btn = p.button
+    local btn = ResolveButton(p, p.actionSpellID)
     if not btn then
         if Preset.debug then print(("|cff33ccff[Preset]|r 武器附魔%s → 技能%s 按钮【未找到】"):format(p.enchantID, p.actionSpellID)) end
         return
@@ -579,9 +609,12 @@ end
 -- =========================================================
 -- 动作条/页面/形态/载具/御龙术切换事件集合（对齐 Manual：翻页 PAGE_CHANGED、御龙术 OVERRIDE
 -- 等场景不触发 SLOT_CHANGED，需一并监听才能让"切条后数字消失/跟随"及时生效）。
+-- ACTIVE_TALENT_GROUP_CHANGED：切专精——动作条整体换技能 + IsPlayerSpell 集合变化，
+-- 触发缓存失效与重匹配，让失效预设的残留倒计时及时清理（2026-08-21 修「切专精后剩余时间滞留」）。
 local actionbarEvents = {
     ACTIONBAR_SLOT_CHANGED       = true,
     ACTIONBAR_PAGE_CHANGED       = true,
+    ACTIVE_TALENT_GROUP_CHANGED  = true,
     UPDATE_BONUS_ACTIONBAR       = true,
     UPDATE_OVERRIDE_ACTIONBAR    = true,
     UPDATE_SHAPESHIFT_FORM       = true,
