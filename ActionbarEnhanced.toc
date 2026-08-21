@@ -35,3 +35,4 @@ RemoveExtraActionButtonTexture.lua
 ButtonClickThrough.lua
 PresetData.lua
 Preset.lua
+BleedReminder.lua

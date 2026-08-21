@@ -30,9 +30,12 @@
 | Bright red 亮红色 | Aura missing / 光环不存在 | Manual「反发光」checkbox 手动绑定·反发光勾选 |
 | Green 绿色 | Cooldown ready / 技能就绪 | CooldownGlow 冷却高亮 |
 | Yellow 黄色 | Trinket ready / 饰品就绪 | TrinketGlow 饰品高亮 |
+| Red 红色 | Bleed debuff on you / 身上出现流血减益 | BleedReminder 流血高亮（矮人石像形态） |
 
 - Cooldown ready glow is configurable: always on, or fade out 1–5s after ready.
 - 冷却就绪发光可配置：常亮，或就绪后 1–5 秒自动熄灭。
+- Bleed alert (dwarves): when you gain a bleed debuff, the Stoneform button on your bars glows red — handy for spotting the moment to cleanse it. Requires Stoneform to be placed on an action bar.
+- 流血高亮提醒（矮人）：身上出现流血类减益时，动作条上的石像形态按钮红色发光，提示可以净化；需将石像形态放在动作条上。
 
 ### Button state coloring / 按钮状态变色
 

@@ -65,6 +65,26 @@
 
 **结论**：追踪**玩家自己（unit="player"）的 buff** 不受限；追踪敌方/目标身上的 debuff 会受限。
 
+### ✅ `includeDispelTypes` / `excludeDispelTypes` 不受上述身份限制（2026-08-21 核实）
+
+`Blizzard_AuraContainerUtil.lua` 的 `DoesAuraPassCandidateFilters` 源码中，`includeSpellIDs`/`excludeSpellIDs` 的判断包在 `if AuraContainerUtil.CanApplyIdentityCandidateFilters(...)` 块内，而 **dispelTypes 的判断在块外无条件执行**——只做 `candidateFilters.includeDispelTypes[auraData.dispelName]` 表查找。含义：
+
+- 按驱散类别过滤光环（含敌方 debuff、战斗中 secret 环境）**照常生效**，由暴雪特权层评估；
+- 与 spellID 身份过滤是两套独立机制，做"类别级"监控（流血/中毒/诅咒/疾病→某按钮高亮）不受 Addonpocalypse 限制。
+
+### dispelName 的合法取值含 `"Bleed"`（2026-08-21 核实）
+
+`Interface/AddOns/Blizzard_FrameXMLUtil/AuraUtil.lua`（live 分支）的 `DEBUFF_DISPLAY_INFO` 表：
+
+```lua
+["Bleed"] = { color = DEBUFF_TYPE_BLEED_COLOR, abbreviation = DEBUFF_SYMBOL_BLEED,
+              basicAtlas = "ui-debuff-border-bleed-noicon",
+              dispelAtlas = "ui-debuff-border-bleed-icon",
+              dispelIconAtlas = "RaidFrame-Icon-DebuffBleed" },
+```
+
+即流血是 12.x 正式的 dispelName 分类（官方有专属边框贴图/颜色/缩写符号），`includeDispelTypes = { ["Bleed"] = true }` 可精确匹配流血类 debuff。注意个别未被暴雪归类的物理流血（dispelName=nil）匹配不到——口径与官方 debuff 框一致。
+
 ## 四、排序
 
 `sortMethod`（`AuraContainerSortMethod`）：`Unsorted / Default / BigDefensive / UnitFrameDebuff / ImportantOnly / Expiration / ExpirationOnly / Name / NameOnly / AuraInstanceIDOnly`，配合 `sortDirection`。
@@ -121,6 +141,7 @@ button:SetHideTooltipInCombat(bool)
 
 - 类型 A（光环：天怒/大地之盾）→ 每预设一个 `AuraContainer` + `AddAuraSlot` + `includeSpellIDs`。
 - 类型 B（武器附魔：火舌/大地生命/唤潮护卫）→ 目前走 `GetWeaponEnchantInfo` 自建（未迁移到 `AddItemEnchantment`）。
+- BleedReminder（流血高亮，2026-08-21）→ 单容器单槽 + `includeDispelTypes={Bleed}` + ProcGlow 挂 AuraButton：发光子帧显隐由暴雪 ApplyVisibility 传播（有流血→按钮显示→glow 可见），插件零光环读取；容器停靠屏幕外而非 Hide（§3 容器显隐坑）。
 - 容器定位到动作条按钮上方：屏幕坐标 `SetPoint`（零锚依赖，与 AutoCDM 同哲学）。
 
 ## 附：源码参考文件（wow-ui-source live 分支）

@@ -22,6 +22,7 @@
 | AutoCDM.lua | 自动发现：CDM 启用的增益自动铺到匹配按钮（BuffIconCooldownViewer） |
 | PresetData.lua | 预设法术/光环配置（用户编辑区，SELF_BUFFS/PRESETS 表），必须先于 Preset.lua 加载；改预设只动此文件 |
 | Preset.lua | 预设光环/武器附魔渲染（CDM 不渲染的），走官方 AuraContainer 通道；配置从 BAR.PresetData 读取，文件本身不含法术表 |
+| BleedReminder.lua | 流血高亮提醒（矮人石像形态按钮红光）：AuraContainer `includeDispelTypes={Bleed}` + ProcGlow 挂 AuraButton 靠暴雪显隐传播驱动，零光环读取 |
 | CooldownGlow.lua | CDM「主冷却」技能就绪 ProcGlow（绿，可配常亮/1–5s） |
 | TrinketGlow.lua | 饰品就绪 ProcGlow（黄） |
 | ButtonColor.lua | 按钮三态变色：灰=CD、蓝=资源不足、红=超范围 |
@@ -75,13 +76,13 @@
 ## 6. LibCustomGlow 坑
 
 - `ProcGlow_Start` 会**叠层**：每次 Start 新建发光帧，不先 Stop 会越叠越厚。所有 glow 封装必须幂等守卫（如 `btn.__ManualGlow`），Stop 后才允许再 Start。
-- glow key 各模块必须独立（Manual=`MANUALGLOW`、CooldownGlow=`BAR`、TrinketGlow=`TG`），互不误杀。
+- glow key 各模块必须独立（Manual=`MANUALGLOW`、CooldownGlow=`BAR`、TrinketGlow=`TG`、BleedReminder=`BLEED`），互不误杀。
 - 按钮移动/翻页/开关切换后发光会**残留**：维护"当前发光集合"，每次重算对账熄灭不再应发光的按钮（TrinketGlow 的解法），不要只在新位置点亮。
 
 ## 7. 存档结构（SavedVariablesPerCharacter: ActionbarEnhancedDB）
 
 - `specs[specID].bindings[spellID] = { bindSpell, glow, inverseGlow, timePos, stackPos }`——绑定按专精独立；specID 取 `GetSpecializationInfo`，拿不到用 0（通用槽）。2026-08-17 起发光/反发光从 timePos 拆出为独立布尔字段（glow=有光环亮青、inverseGlow=无光环亮红，允许同时勾、状态切换换色），timePos/stackPos 增加 `"无"`=不显示该数字；四项（发光/反发光/时间/层数）互相独立。SelectSpec 内做旧档迁移：timePos="发光"/"反发光"→拆字段，showTime/showStack=false→位置"无"（字段已废弃清理）。
-- 模块开关各存各的：`clickThrough[1..8]`、`trinketGlow.enabled`、`disableAutoAdd.enabled`、`removeExtraActionTexture.enabled` 等。
+- 模块开关各存各的：`clickThrough[1..8]`、`trinketGlow.enabled`、`disableAutoAdd.enabled`、`removeExtraActionTexture.enabled`、`bleedReminder.enabled` 等。
 - 外观（颜色/字号）是 Settings.lua 硬编码常量，**不存盘**；旧存档的顶层 timeColor/stackColor/fontSize 字段在 InitSpecStorage 时清理。
 - 兼容：旧扁平 `bindings`（顶层）迁移到 `specs[0]`；字符串型绑定转 table。
 

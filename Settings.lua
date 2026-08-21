@@ -29,6 +29,7 @@ S.TIME_COLOR_OTHER_DEBUFF = { 1.00, 0.20, 0.20 }  -- 别人的 debuff：鲜红
 S.STACK_COLOR             = { 0x3F/255, 0xC7/255, 0xEB/255 }  -- 层数：#3FC7EB
 S.MANUAL_GLOW_COLOR       = { 0x16/255, 0xF2/255, 0xFA/255, 1 }  -- 手动绑定「发光」模式按钮高亮色（光环存在时亮）：#16f2fa 青色
 S.MANUAL_INVERSE_GLOW_COLOR = { 1.0, 0.0, 0.0, 1 }  -- 手动绑定「反发光」模式按钮高亮色（光环不存在时亮）：#FF0000 亮红色
+S.BLEED_GLOW_COLOR          = { 1.0, 0.15, 0.15, 1 }  -- 流血高亮（矮人石像形态按钮，身上有流血减益时亮）：鲜红
 
 -- 取时间颜色：自身=浅绿；别人 debuff=浅紫；别人 buff（及其它）=黄
 -- ⚠️ 必须用 isHarmful 布尔判定 debuff：新客户端 auraData.auraType 是 Enum.AuraType【数字】，

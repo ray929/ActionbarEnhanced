@@ -268,6 +268,15 @@ local options = {
                     get = function() return BAR.Preset and BAR.Preset.IsEnabled() end,
                     set = function(_, v) if BAR.Preset then BAR.Preset.SetEnabled(v) end end,
                 },
+                bleedReminder = {
+                    type = "toggle",
+                    name = "流血高亮提醒（矮人石像形态）",
+                    desc = "身上出现流血类减益时，石像形态按钮红色发光提醒（基于 AuraContainer，战斗中可用；需将石像形态放在动作条上）",
+                    order = 2.6,
+                    width = "full",
+                    get = function() return BAR.BleedReminder and BAR.BleedReminder.IsEnabled() end,
+                    set = function(_, v) if BAR.BleedReminder then BAR.BleedReminder.SetEnabled(v) end end,
+                },
                 autoCDM = {
                     type = "toggle",
                     name = "CDM光环自动发现",
