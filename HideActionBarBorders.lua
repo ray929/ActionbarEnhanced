@@ -68,20 +68,23 @@ local function HideBorder(button)
     end
 end
 
--- 图标素材放大 1.2 倍：暴雪自带图标四周有一圈边框，放大图标纹理使边框超出按钮边界。
--- 同时用【方块蒙版】裁切溢出部分（按钮大小），否则图标溢出可见、视觉上像"按钮变大"。
--- 只放大图标纹理 + 裁切，不改变按钮尺寸/位置/点击范围。
+-- 图标素材放大 1.15 倍：暴雪自带图标四周有一圈边框，放大使其溢出按钮即可裁掉。
+-- 等效实现：图标与按钮同尺寸 + SetTexCoord 只取素材中央 1/ICON_SCALE 区域
+-- （与"放大后裁切"数学等价，视觉一致），只动 icon 纹理本身，不改按钮尺寸/位置/点击范围。
+-- ⚠️ 绝不能用 button:SetClipsChildren(true) 裁整个按钮：法术弹出菜单（猎人召唤宠物、
+-- 法师传送等 SpellFlyout）打开时会被暴雪 SetParent 到源按钮上（FlyoutPopupMixin:
+-- AttachToButton，12.1.0 源码核实），整钮裁切会把弹出菜单一起裁掉 → 菜单被截断隐藏。
 local ICON_SCALE = 1.15
 local function EnlargeIcon(button)
     local icon = button.icon
     if not icon then return end
-    local bw, bh = button:GetSize()
+    local bw = button:GetWidth()
     if not bw or bw <= 0 then return end
     icon:ClearAllPoints()
-    icon:SetPoint("CENTER", button, "CENTER", 0, 0)
-    icon:SetSize(bw * ICON_SCALE, bh * ICON_SCALE)
-    -- 裁切子帧到按钮边界：放大后的图标溢出部分被裁掉，按钮视觉尺寸/点击范围不变
-    button:SetClipsChildren(true)
+    icon:SetAllPoints(button)
+    -- 裁掉素材自带边框：只显示中央 1/ICON_SCALE 区域，铺满按钮
+    local inset = (1 - 1 / ICON_SCALE) / 2
+    icon:SetTexCoord(inset, 1 - inset, inset, 1 - inset)
 end
 
 -- 功能启用时给按钮加 1 像素黑色描边：用 4 条 WHITE8X8 纹理紧贴按钮内缘，

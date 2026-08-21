@@ -61,6 +61,7 @@
 - **不跑自己的 OnUpdate 去刷挂在安全按钮上的子帧**（同上 taint 复检问题）。刷新一律 hook CDM item 的 `RefreshData`（暴雪驱动、战斗中照常触发）。
 - 对受保护帧调 `EnableMouse(false)` 等必须在 **SecureHandlerStateTemplate + RegisterStateDriver 安全环境**（ButtonClickThrough 的教训：普通 Lua 调用会永久 taint，连编辑模式都会报错）。
 - 非安全代码绝不能遍历受保护表（错误："attempted to iterate a table that cannot be accessed while tainted"）。
+- **动作条按钮禁用 `SetClipsChildren`（HideActionBarBorders，2026-08-21 修）**：法术弹出菜单（猎人召唤宠物/法师传送等 SpellFlyout）打开时会被 `FlyoutPopupMixin:AttachToButton` **SetParent 到源按钮上**（12.1.0 build 69404 源码核实），整钮裁切会把菜单一起裁剪到按钮矩形内 → 菜单被截断隐藏。图标"放大去边框"一律用 **`icon:SetTexCoord` 裁素材中央区域**（与放大+裁帧数学等价；已核实 ActionButton/PetActionBar/StanceBar 均不重置 icon 的 TexCoord）。详见 `docs/SpellFlyout.md`。
 
 ## 5. CDM 扫描坑
 
@@ -108,6 +109,7 @@
 | 文档 | 主题 |
 |---|---|
 | `docs/AuraContainer.md` | 12.1.0 AuraContainer / AuraButton 框架全解：三种槽位（AuraGroup/AuraSlot/ItemEnchantment）、两层过滤（filterString + candidateFilters 含 includeSpellIDs）、AuraButton 子控件注册 API、Forbidden Aspects 安全约束、事件模型。核实自 wow-ui-source live 分支，核实日期 2026-08-15 |
+| `docs/SpellFlyout.md` | 12.1.0 法术弹出菜单（SpellFlyout）机制：AttachToButton 会 SetParent 到源按钮（SetClipsChildren 截断菜单的根因）、菜单项按钮结构、关闭时机、皮肤化约束。核实自 wow-ui-source live 分支 12.1.0 (69404)，核实日期 2026-08-21 |
 
 写 docs/ 文档的要求：注明信息来源（wow-ui-source 分支 / wiki.gg 页面）与核实日期；12.x 变化快，使用前若版本已更新需重新核实。
 
