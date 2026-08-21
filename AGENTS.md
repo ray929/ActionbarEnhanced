@@ -62,6 +62,7 @@
 - 对受保护帧调 `EnableMouse(false)` 等必须在 **SecureHandlerStateTemplate + RegisterStateDriver 安全环境**（ButtonClickThrough 的教训：普通 Lua 调用会永久 taint，连编辑模式都会报错）。
 - 非安全代码绝不能遍历受保护表（错误："attempted to iterate a table that cannot be accessed while tainted"）。
 - **动作条按钮禁用 `SetClipsChildren`（HideActionBarBorders，2026-08-21 修）**：法术弹出菜单（猎人召唤宠物/法师传送等 SpellFlyout）打开时会被 `FlyoutPopupMixin:AttachToButton` **SetParent 到源按钮上**（12.1.0 build 69404 源码核实），整钮裁切会把菜单一起裁剪到按钮矩形内 → 菜单被截断隐藏。图标"放大去边框"一律用 **`icon:SetTexCoord` 裁素材中央区域**（与放大+裁帧数学等价；已核实 ActionButton/PetActionBar/StanceBar 均不重置 icon 的 TexCoord）。详见 `docs/SpellFlyout.md`。
+- **ADDON_ACTION_BLOCKED 归属判定（2026-08-21 排查 EllesmereUIRaidFrames 案例）**：`addonName` = 直接执行被拦截调用的插件；判定本插件是否有责看两点——① 堆栈里是否出现本插件帧/函数（该案例全程 EllesmereUIRaidFrames+暴雪 SecureGroupHeaders，零本插件代码）；② 是否存在共享对象 taint 传播路径（本插件不监听 GROUP_ROSTER/UNIT_NAME 事件、不碰 secure header/raid frame，无传播面）。战斗中 GROUP_ROSTER_UPDATE/UNIT_NAME_UPDATE → SecureGroupHeader 重排 → 插件 OnAttributeChanged 回调改受保护子帧（SetHeight 等）被拦，是 raid frame 类插件在 12.x RestrictedAddOnEnvironment 下的典型架构问题（VuhDo/Grid2 同款），非本插件传染。
 
 ## 5. CDM 扫描坑
 
