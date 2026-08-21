@@ -55,6 +55,7 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "HUNTER", auraSpellID = 35079, actionSpellID = 34477 },    -- 误导(生效后)
     { class = "HUNTER", auraSpellID = 257622, actionSpellID = 257620 },    -- 技巧射击绑多重射击
     { class = "HUNTER", auraSpellID = 6197, actionSpellID = 6197 },    -- 鹰眼术
+    { class = "HUNTER", auraSpellID = 321297, actionSpellID = 321297 },    -- 野兽之眼
     -- 武僧 MONK（减伤/爆发）
     { class = "MONK", auraSpellID = 122278, actionSpellID = 122278 },    -- 躯不坏（减伤）
     { class = "MONK", auraSpellID = 122783, actionSpellID = 122783 },    -- 散魔功（减伤）
@@ -75,10 +76,6 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "SHAMAN", presetType = "weaponEnchant", enchantID = 7528, actionSpellID = 457481, enchantName = "Tidecaller's Guard" }, -- 唤潮者护卫
     { class = "SHAMAN", auraSpellID = 108271, actionSpellID = 108271 },  -- 星界转移（减伤）
     { class = "SHAMAN", auraSpellID = 191634, actionSpellID = 191634 },  -- 风暴守护者（爆发）
-    { class = "SHAMAN", auraSpellID = 2825, actionSpellID = 2825 },      -- 嗜血（团队急速）
-    { class = "SHAMAN", auraSpellID = 32182, actionSpellID = 32182 },    -- 英勇（团队急速，联盟版）
-    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470057, unit = "target", filter = "HARMFUL|PLAYER" },
-    { class = "SHAMAN", auraSpellID = 188389, actionSpellID = 470411, unit = "target", filter = "HARMFUL|PLAYER" },
     -- 盗贼 ROGUE（武器涂毒：光环 = 技能 同 ID）
     { class = "ROGUE", auraSpellID = 381664, actionSpellID = 381664 },  -- 增效毒药 Amplifying
     { class = "ROGUE", auraSpellID = 2823, actionSpellID = 2823 },      -- 致命毒药 Deadly
@@ -144,7 +141,6 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "PRIEST", auraSpellID = 19236, actionSpellID = 19236 },    -- 绝望祷言
     { class = "PRIEST", auraSpellID = 17, actionSpellID = 17 },    -- 真言术盾
     { class = "PRIEST",  auraSpellID = 121557, actionSpellID = 121536 }, -- 羽毛
-    { class = "PRIEST", auraSpellID = 589, actionSpellID = 589, unit = "target", filter = "HARMFUL|PLAYER" }, -- 暗影术痛
     -- 牧师 PRIEST（减伤/爆发；光环=技能同ID）
     { class = "PRIEST", auraSpellID = 33206, actionSpellID = 33206 },    -- 痛苦压制（减伤）
     { class = "PRIEST", auraSpellID = 47788, actionSpellID = 47788 },    -- 守护之魂（减伤/保命）
