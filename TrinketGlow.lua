@@ -5,6 +5,9 @@
 --   · 仅一个总开关（存 ActionbarEnhancedDB.trinketGlow.enabled），无战斗限制、无黑名单；
 --   · 发光用项目已加载的 LibCustomGlow-1.0（ProcGlow），glow key 用 "TG" 与冷却高亮的 "BAR" 区分；
 --   · 仅覆盖原生动作条按钮（与 CooldownGlow 同套前缀），第三方动作条（BT4/Dominos）不处理。
+--   · 2026-08-22 起【不识别宏】（用户决策）：只认直接拖上动作条的饰品本体。原版会把含
+--     /use 13|14 的技能宏（如 /cast 技能 + /use 13 连招宏）整钮点亮，饰品就绪时恒亮黄光，
+--     玩家极易误读为「技能异常发光」（本案还魂术/神龙之赐黄光即此），故彻底排除。
 --
 -- 就绪判定（忠实移植 MiniTrinketGlow）：
 --   GetInventoryItemCooldown("player", slot13/14) 返回传统三值 (start, duration, usable)，
@@ -91,40 +94,17 @@ local function GetEquippedTrinketItemID(slot)
     return GetInventoryItemID("player", slot)
 end
 
-local function ParseMacroForTrinketSlot(body)
-    if not body or body == "" then return nil end
-    for line in body:gmatch("[^\r\n]+") do
-        line = line:lower()
-        line = line:gsub("%s+", " "):gsub("^%s+", "")
-        if line:sub(1, 4) == "/use" then
-            if line:find(" " .. TRINKET1, 5, true) then return TRINKET1 end
-            if line:find(" " .. TRINKET2, 5, true) then return TRINKET2 end
-        end
-    end
-    return nil
-end
-
-local function GetMacroBodyFromAction(action)
-    local macroName = GetActionText(action)
-    if not macroName or macroName == "" then return nil end
-    local macroIndex = GetMacroIndexByName(macroName)
-    if not macroIndex or macroIndex == 0 then return nil end
-    local _, _, body = GetMacroInfo(macroIndex)
-    return body
-end
-
 local function GetTrinketSlotForAction(action)
+    -- 2026-08-22 起只认直接拖上动作条的饰品本体（actionType=="item" 且 itemID 与装备中
+    -- 饰品一致）；宏（含 /use 13|14）不识别（用户决策，见文件头注释）。
+    -- item 型动作的 itemID 是放入时的快照：卸下饰品后 GetEquippedTrinketItemID 返回 nil
+    -- 不再匹配 → 按钮自然出映射（PLAYER_EQUIPMENT_CHANGED 会触发重建），无需额外处理。
     local actionType, id = GetActionInfo(action)
-    if actionType == "item" and id then
-        local t1 = GetEquippedTrinketItemID(TRINKET1)
-        local t2 = GetEquippedTrinketItemID(TRINKET2)
-        if t1 and id == t1 then return TRINKET1 end
-        if t2 and id == t2 then return TRINKET2 end
-        return nil
-    elseif actionType == "macro" then
-        local body = GetMacroBodyFromAction(action)
-        return ParseMacroForTrinketSlot(body)
-    end
+    if actionType ~= "item" or not id then return nil end
+    local t1 = GetEquippedTrinketItemID(TRINKET1)
+    local t2 = GetEquippedTrinketItemID(TRINKET2)
+    if t1 and id == t1 then return TRINKET1 end
+    if t2 and id == t2 then return TRINKET2 end
     return nil
 end
 
@@ -145,7 +125,7 @@ local function CheckTrinketUsed(slot)
 end
 
 -- 缓存「饰品按钮 -> 装备槽位」映射：仅在动作条/装备变化时重建，
--- 避免每次 ACTIONBAR_UPDATE_COOLDOWN（高频）都全量扫描 8 前缀×12 按钮（含解析宏体），
+-- 避免每次 ACTIONBAR_UPDATE_COOLDOWN（高频）都全量扫描 8 前缀×12 按钮，
 -- 这是 Run 在战斗中频繁触发时的最大 CPU 开销。Run 只遍历这个 0~2 个元素的缓存。
 local trinketButtons = {}
 
@@ -220,9 +200,9 @@ local function Run()
     local shouldGlow = {}
     for btn, slot in pairs(trinketButtons) do
         local start, duration, usable = GetInventoryItemCooldown("player", slot)
-        -- 空槽守卫（2026-08-22）：/use 13|14 宏留在动作条、饰品却被卸下时，
-        -- 空槽的冷却查询可能返回 (0,0,1) 被误判「就绪」→ 按钮恒亮黄光。
-        -- 槽里没饰品就无「可用」可言，直接不亮。
+        -- 空槽守卫（2026-08-22）：装备切换事件重建映射前的竞态窗口里，空槽的冷却查询
+        -- 可能返回 (0,0,1) 被误判「就绪」→ 按钮短暂误亮。槽里没饰品就无「可用」可言，
+        -- 直接不亮（defense-in-depth，正常路径由 PLAYER_EQUIPMENT_CHANGED 重建映射兜住）。
         local trinketReady = GetInventoryItemID("player", slot) ~= nil
             and (usable == 1) and (start == 0) and (duration == 0)
         if trinketReady then
@@ -264,10 +244,6 @@ evFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 evFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 evFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 evFrame:RegisterEvent("SPELL_UPDATE_USABLE")
--- 宏编辑（增删 /use 13|14 行）不触发 ACTIONBAR_SLOT_CHANGED（槽位内容未变，还是同一个宏），
--- 必须监听 UPDATE_MACROS 才能重建「按钮→饰品槽」映射（原版 MiniTrinketGlow 同款），
--- 否则删掉 /use 行后旧按钮的发光要等到下一次动作条/装备事件才被对账熄灭。
-evFrame:RegisterEvent("UPDATE_MACROS")
 
 evFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then

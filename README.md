@@ -29,7 +29,7 @@
 | Cyan 青色 | Aura present / 光环存在 | Manual「发光」checkbox 手动绑定·发光勾选 |
 | Bright red 亮红色 | Aura missing / 光环不存在 | Manual「反发光」checkbox 手动绑定·反发光勾选 |
 | Green 绿色 | Cooldown ready / 技能就绪 | CooldownGlow 冷却高亮 |
-| Yellow 黄色 | Trinket ready / 饰品就绪 | TrinketGlow 饰品高亮 |
+| Yellow 黄色 | Trinket ready (trinket items placed on bars only, not macros) / 饰品就绪（仅直接拖上动作条的饰品本体，宏不触发） | TrinketGlow 饰品高亮 |
 | Red 红色 | Bleed debuff on you / 身上出现流血减益 | BleedReminder 流血高亮（矮人石像形态） |
 
 - Cooldown ready glow is configurable: always on, or fade out 1–5s after ready.
