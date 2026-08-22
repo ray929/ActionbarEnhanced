@@ -67,6 +67,10 @@ offscreenFrame:Show()
 local function MoveItemOffscreen(item)
     if not item then return end
     pcall(function()
+        -- 幂等守卫：已在屏幕外则跳过。UNIT_AURA 对账（0.2s 防抖）+ 0.5s 兜底 ticker
+        -- 引入后本函数高频重入，不守卫会反复 ClearAllPoints+SetPoint 触发布局重算。
+        -- 用 GetParent() 判断而非标记位：CDM 若把 item 重新 parent 回查看器，仍能重新移走。
+        if item:GetParent() == offscreenFrame then return end
         if not item.__BAROrigParent then
             item.__BAROrigParent = item:GetParent()
         end
@@ -659,6 +663,8 @@ frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("ACTIVE_PLAYER_SPECIALIZATION_CHANGED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+-- 光环增删对账入口（实现见第二段 HandleUnitAura）：修「buff 消失后手动发光滞留到 reload」
+frame:RegisterUnitEvent("UNIT_AURA", "player")
 for ev in pairs(actionbarEvents) do frame:RegisterEvent(ev) end
 
 frame:SetScript("OnEvent", function(_, event)
@@ -674,6 +680,10 @@ frame:SetScript("OnEvent", function(_, event)
         C_Timer.After(0.5, function() EnsureHooks(); BAR.Rescan() end)
     elseif event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" then
         BAR.SelectSpec()        -- 切换专精 -> 切换配置
+    elseif event == "UNIT_AURA" then
+        -- 光环增删 → 第二段 HandleUnitAura 做 0.2s 防抖对账
+        --（「buff 消失后手动发光滞留」修复，根因见第二段 ScheduleOverlayRefresh 注释）
+        if BAR.HandleUnitAura then BAR.HandleUnitAura() end
     elseif actionbarEvents[event] then
         -- 动作条 / 形态 / 页面 / 载具 / 御龙术切换：重建覆盖层 + 重新同步显示。
         -- 御龙术走 bonus/override bar，未必触发 ACTIONBAR_SLOT_CHANGED，故统一在此处理。
@@ -1050,6 +1060,41 @@ function BAR.RefreshAllOverlays()
         end
     end
 end
+
+-- =========================================================
+-- 光环增删对账（2026-08-22 修「活力苏醒消失后神龙之赐发光滞留到 reload」）
+--   根因：覆盖层/发光状态此前只由两条链路驱动——CDM item 的 RefreshData hook
+--   与动作条/进出战斗事件。光环消失时 CDM 可能把 item 释放回池/复用（该 spellID
+--   不再有 RefreshData），发光状态就冻结在「亮」。曾经的无意识兜底是 Options 的
+--   0.5s 签名 ticker（活动帧集合变化 → Rescan → RefreshAllOverlays），但
+--   2026-08-16 性能优化加了「窗口未开直接 return」——正常游戏时配置窗口全程
+--   关闭，兜底等于被砍断，滞留直到 reload / 下一个动作条或战斗事件，
+--   症状即「触发原因不明、reload 后修复」。
+--   修复（与 AutoCDM 的 ScheduleRefresh 同款模式，战斗安全已验证）：
+--   ① UNIT_AURA(player) 0.2s 防抖对账——光环增删即时修正发光/倒计时；
+--   ② 0.5s 兜底 ticker——仅当存在覆盖层时运行（§10：ticker 与消费者在场挂钩），
+--      捕获 CDM frame 复用等未知的状态漂移。
+-- =========================================================
+local refreshTimer = nil
+local function ScheduleOverlayRefresh()
+    if refreshTimer then refreshTimer:Cancel() end
+    refreshTimer = C_Timer.NewTimer(0.2, function()
+        refreshTimer = nil
+        if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+    end)
+end
+
+-- 由第一段事件帧的 UNIT_AURA 分支调用（overlays 在本段声明，故经 BAR.* 转发）
+BAR.HandleUnitAura = function()
+    if not next(overlays) then return end
+    ScheduleOverlayRefresh()
+end
+
+C_Timer.NewTicker(0.5, function()
+    if next(overlays) then
+        if BAR.RefreshAllOverlays then BAR.RefreshAllOverlays() end
+    end
+end)
 
 -- 首次登录后构建一次（此时 cdID 映射已由第一段的 Rescan 填充）
 local initFrame = CreateFrame("Frame")
