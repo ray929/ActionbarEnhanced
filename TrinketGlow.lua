@@ -220,7 +220,11 @@ local function Run()
     local shouldGlow = {}
     for btn, slot in pairs(trinketButtons) do
         local start, duration, usable = GetInventoryItemCooldown("player", slot)
-        local trinketReady = (usable == 1) and (start == 0) and (duration == 0)
+        -- 空槽守卫（2026-08-22）：/use 13|14 宏留在动作条、饰品却被卸下时，
+        -- 空槽的冷却查询可能返回 (0,0,1) 被误判「就绪」→ 按钮恒亮黄光。
+        -- 槽里没饰品就无「可用」可言，直接不亮。
+        local trinketReady = GetInventoryItemID("player", slot) ~= nil
+            and (usable == 1) and (start == 0) and (duration == 0)
         if trinketReady then
             shouldGlow[btn] = true
         end
@@ -260,6 +264,10 @@ evFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 evFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 evFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 evFrame:RegisterEvent("SPELL_UPDATE_USABLE")
+-- 宏编辑（增删 /use 13|14 行）不触发 ACTIONBAR_SLOT_CHANGED（槽位内容未变，还是同一个宏），
+-- 必须监听 UPDATE_MACROS 才能重建「按钮→饰品槽」映射（原版 MiniTrinketGlow 同款），
+-- 否则删掉 /use 行后旧按钮的发光要等到下一次动作条/装备事件才被对账熄灭。
+evFrame:RegisterEvent("UPDATE_MACROS")
 
 evFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then
