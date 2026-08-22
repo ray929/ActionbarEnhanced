@@ -62,6 +62,7 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "MONK", auraSpellID = 115176, actionSpellID = 115176 },    -- 禅悟冥想（引导减伤）
     { class = "MONK", auraSpellID = 116680, actionSpellID = 116680 },    -- 雷光聚神茶（爆发）
     { class = "MONK", auraSpellID = 137639, actionSpellID = 137639 },    -- 风火雷电（爆发）
+    { class = "MONK", auraSpellID = 120954, actionSpellID = 115203 },    -- 壮胆酒
     -- 萨满 SHAMAN
     { class = "SHAMAN", auraSpellID = 1219480, actionSpellID = 114050 },    -- 升腾
     { class = "SHAMAN", auraSpellID = 383648, actionSpellID = 974 },      -- 大地之盾（光环 383648 → 技能 974）
@@ -159,6 +160,7 @@ BAR.PresetData.SELF_BUFFS = {
     { class = "PALADIN", auraSpellID = 86659, actionSpellID = 86659 },   -- 远古列王守卫（减伤）
     { class = "PALADIN", auraSpellID = 31884, actionSpellID = 31884 },   -- 复仇之怒（爆发）
     { class = "PALADIN", auraSpellID = 105809, actionSpellID = 105809 }, -- 神圣复仇者（防骑爆发）
+    { class = "PALADIN", auraSpellID = 156322, actionSpellID = 156322 }, -- 神圣之火
     -- 唤魔者 EVOKER（增辉协调：黑 403264 / 铜 403265 二选一）
     { class = "EVOKER", auraSpellID = { 403264, 403265 }, actionSpellID = 403208 },
     -- 唤魔者 EVOKER 青铜龙祝福（团队增益，光环为多阶段变体）
