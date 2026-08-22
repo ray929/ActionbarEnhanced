@@ -80,6 +80,8 @@
 - `ProcGlow_Start` 会**叠层**：每次 Start 新建发光帧，不先 Stop 会越叠越厚。所有 glow 封装必须幂等守卫（如 `btn.__ManualGlow`），Stop 后才允许再 Start。
 - glow key 各模块必须独立（Manual=`MANUALGLOW`、CooldownGlow=`BAR`、TrinketGlow=`TG`、BleedReminder=`BLEED`），互不误杀。
 - 按钮移动/翻页/开关切换后发光会**残留**：维护"当前发光集合"，每次重算对账熄灭不再应发光的按钮（TrinketGlow 的解法），不要只在新位置点亮。
+- **发光状态会"冻结"在亮，需光环事件对账（Manual，2026-08-22 修「活力苏醒消失后神龙之赐发光滞留到 reload」）**：覆盖层/发光状态若只由「CDM item 的 RefreshData hook + 动作条/进出战斗事件」两条链路驱动，光环消失时 CDM 可能把 item 释放回池/复用（该 spellID 不再有 RefreshData），发光就冻结在「亮」。隐蔽点：Options 的 0.5s 签名 ticker 曾是无意识兜底，但 2026-08-16 性能优化加「窗口未开直接 return」后正常游戏时（配置窗口全程关闭）兜底等于被砍断 → 滞留直到 reload / 下一个动作条事件，症状即「触发原因不明、reload 后修复」。正解（AutoCDM ScheduleRefresh 同款模式，战斗安全）：① `UNIT_AURA`(player) 0.2s 防抖对账即时修正；② 0.5s 兜底 ticker 仅当存在覆盖层时运行（§10 ticker 与消费者挂钩）。⚠️ 连带：对账引入后 `MoveItemOffscreen` 高频重入，必须加幂等守卫（`GetParent() == offscreenFrame` 判断，非标记位——CDM 重新 parent 回查看器后仍能重新移走），否则反复 ClearAllPoints+SetPoint 触发布局重算。
+- **TrinketGlow 空槽误判 + 宏编辑不重建映射（2026-08-22 修「还魂术恒亮黄光」）**：① `/use 13|14` 宏留在动作条、饰品却被卸下时，空槽的 `GetInventoryItemCooldown` 返回 (0,0,1) 被误判「就绪」→ 按钮恒亮黄光；正解：`GetInventoryItemID("player", slot) ~= nil` 前置守卫（没饰品就无「可用」可言）。② 宏编辑（增删 /use 13|14 行）**不触发** `ACTIONBAR_SLOT_CHANGED`（槽位内容未变，还是同一个宏），必须监听 `UPDATE_MACROS` 重建「按钮→饰品槽」映射，否则删掉 /use 行后旧按钮发光要等到下一次动作条/装备事件才熄灭。排查提示：黄=TrinketGlow、绿=CooldownGlow、青/红=Manual、红=BleedReminder；纯法术按钮不会进 TrinketGlow 映射（只有饰品 item 或含 /use 13|14 的宏会），用户报某技能黄光时先确认该按钮是否实为 `/use 13` 宏——饰品就绪时这类宏亮黄光是**设计行为**。
 
 ## 7. 存档结构（SavedVariablesPerCharacter: ActionbarEnhancedDB）
 
