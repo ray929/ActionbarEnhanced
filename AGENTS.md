@@ -49,8 +49,9 @@
     - **战斗门禁**：官方元 API `C_Secrets.ShouldAurasBeSecret()`（返回布尔，本身不泄密）+ `InCombatLockdown()` 双查，战斗中绝不创建/重建容器，只记 `pendingRebuild` 待 `PLAYER_REGEN_ENABLED` 重建；登录期在 `ADDON_LOADED` 后先建（光环未 secret）。
     - 代价：战斗中不能改任何配置（阈值/位置/增删均需脱战重建）；登录后进战斗前没建成的条整场缺席。目标单位（target）模块战斗中切目标 `SetUnit`+`UpdateAllAuras` 需 pcall，secret 期失败则停在旧目标，脱战恢复。
     - 若日后做"层数进度条/阈值变色"类功能，此路 combat-safe，优先考虑。
+  - **C. KiraUI 骨盾模式（2026-08-24 分析 KiraUI-Plugin 沉淀，详见 `docs/SecretSafeAuraDetection.md`）**：不读光环数据回答"层数阈值/剩余时间"的四条补充通道——① **代理光环**：阈值问题转化为"关联光环是否存在"（骨盾 <5 层 ≡ 骨匣 Ossuary 增益消失，恰好阈值处存在的天赋光环是现成的阈值传感器）；② **`IsActive()` 明文布尔**：CDM item frame 上暴雪特权代码算好落盘的派生字段（`RefreshActive→ShouldBeActive→IsExpired` 消费 secret 后写 `self.isActive`），key 内实测可读，比 `IsShown` 精确（不受编辑模式/EUI 屏幕外 alpha=0 停靠干扰）；⚠️ 偶尔持有 secret 值，必须 `issecretvalue` 兜底；⚠️ CDM 帧 `GetSpellID()` 在受限环境可能返回 secret number，`==` 比较会 hard-error；③ **施法时钟**：自己施法的 `UNIT_SPELLCAST_SUCCEEDED` 全环境可读（含 key），`expire = now + 已知时长` 自建时钟，真值可读时校正，时钟耗尽但图标仍亮 = 未监控来源刷新 → 收声不猜；④ **学习型刷新表**：真值可读环境里观测每次施法前后 `expirationTime` 是否被推前，自动学习/遗忘刷新技能并存 profile。选型顺序：找代理光环 → 施法时钟 → B+ 多 slot 克隆。
 - secret 值 **不能靠 `type()` 预判**（12.1 起 secret 的 type() 可返回 number/boolean/string 等），统一用 `issecretvalue` 判定；对外部帧/数据的访问一律 `pcall` 包裹兜底。
-- 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。
+- 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。**更优读法（KiraUI 核实，2026-08-24）**：CDM item 的 `IsActive()` 返回暴雪特权代码落盘的明文布尔，不受编辑模式/EUI 屏幕外停靠干扰，key 内实测可读——判定光环激活优先它，`issecretvalue` 兜底后回退 `IsShown`。
 - 冷却数据：`GetInventoryItemCooldown` 返回传统三值 number（安全，TrinketGlow 用）；`C_ActionBar.GetActionCooldown` 的 CooldownInfo 是 **secret**（勿用）。
 - 冷却缓存坑（ButtonColor，2026-08-18 修）：`_cdCache` 以按钮为 key，翻页/姿态/载具/占据切换后同一按钮换了技能 → 缓存持有旧技能冷却态（页面事件只应用不重算，isOnGCD 又不可跨时机重读）→ 残留错误灰显（进载具不施法可一直挂灰到下次施法）。修正：钩 cooldown 帧 **OnHide**（引擎隐藏 = 无漩涡 = 必然非真实 CD，缓存安全置 false）+ **OnShow**（脱战时经 `C_ActionBar.GetActionCooldownDuration(action, true)` + `DurationObject:GetRemainingDuration()` 精算写缓存——ignoreGCD 在 C 层剔除 GCD，绕开 isOnGCD 时序问题；精算前必查 `HasSecretValues()`，战斗中 secret 只补刷新不写缓存，待下次施法自愈）。GreyOnCooldown 2.0.2 同款 hook 点。
 - 按 spellID 定点的 `GetPlayerAuraBySpellID` 等在 12.1 仍存在但标注 `RequiresNonSecretAura`，战斗中仅白名单光环可用——不要依赖。
@@ -66,7 +67,7 @@
 
 ## 5. CDM 扫描坑
 
-- 枚举 viewer 帧用 `itemFramePool:EnumerateActive`（= active 帧）；**别用 `GetItemFrames`**（拖动 CDM 触发 RefreshLayout→ReleaseAll 时瞬间变空/不全，且含池化隐藏帧 → 列表乱跳/清空）。
+- 枚举 viewer 帧用 `itemFramePool:EnumerateActive`（= active 帧）；**别用 `GetItemFrames`**（拖动 CDM 触发 RefreshLayout→ReleaseAll 时瞬间变空/不全，且含池化隐藏帧 → 列表乱跳/清空）。**更深一层语义（KiraUI 核实，2026-08-24）**：`GetItemFrames()` = `GetLayoutChildren()` 只收集 `IsShown` 的帧，而 buff item 的 `ShouldBeShown()` 在光环失活时 `SetShown(false)`——**光环掉落的瞬间帧恰好从列表消失**。凡需要读"光环失活后的帧状态"（掉 buff 提醒/发光对账），必须 `viewer:GetChildren()` 找到帧后**永久持有 + 每 tick 轮询**，且每次读取重验身份（池化帧可能换装别的技能，身份不符即丢弃，宁可未知不可答错）。
 - `Rescan` 用"新表扫描、扫到 0 帧保留旧表"策略，避免过渡态直接清空已知列表。
 - spellID 要**收全部候选**（`spellID/override/overrideTooltip/linkedSpellIDs`）：12.1 天赋改名场景（光环"烈焰震击" vs 按钮"流电炽焰"）只记一个 ID 会匹配失败。候选写在自己造的非 secret 字段 `frame.__BARSpellID/__BARSpellIDs` 上，绝不读 secret 的 `frame.auraSpellID`。
 - 与 CDMButtonAuras 同框共存时 hook 标记键要区分（本项目用 `__BARHooked`/`__BARAutoCDMHooked`），否则被对方抢先标记 → 永不 hook。
@@ -113,6 +114,7 @@
 |---|---|
 | `docs/AuraContainer.md` | 12.1.0 AuraContainer / AuraButton 框架全解：三种槽位（AuraGroup/AuraSlot/ItemEnchantment）、两层过滤（filterString + candidateFilters 含 includeSpellIDs）、AuraButton 子控件注册 API、Forbidden Aspects 安全约束、事件模型。核实自 wow-ui-source live 分支，核实日期 2026-08-15 |
 | `docs/SpellFlyout.md` | 12.1.0 法术弹出菜单（SpellFlyout）机制：AttachToButton 会 SetParent 到源按钮（SetClipsChildren 截断菜单的根因）、菜单项按钮结构、关闭时机、皮肤化约束。核实自 wow-ui-source live 分支 12.1.0 (69404)，核实日期 2026-08-21 |
+| `docs/SecretSafeAuraDetection.md` | secret 环境下光环状态检测的替代通道（KiraUI-Plugin 骨盾模块分析）：代理光环阈值判断（Ossuary 模式）、CDM 帧 `IsActive()` 明文布尔、GetChildren 持有帧对抗"隐藏即消失"、施法时钟、学习型刷新表。核实自 KiraUI-Plugin v1.14 源码 + wow-ui-source live 分支，核实日期 2026-08-24 |
 
 写 docs/ 文档的要求：注明信息来源（wow-ui-source 分支 / wiki.gg 页面）与核实日期；12.x 变化快，使用前若版本已更新需重新核实。
 
