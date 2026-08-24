@@ -86,11 +86,22 @@ local function IsSecret(v)
     return ok and res
 end
 
--- 安全判断 CDM item frame 是否显示（= 光环是否激活）。
--- ⚠️ 12.1 蓝贴提到过新 AuraButton 的 IsShown 会返回 secret；CDM item frame 是普通
---   Frame 不受此限制，但为绝对稳妥仍 pcall 包裹：异常/secret 时按"未激活"处理。
-local function IsItemShown(item)
+-- 安全判断 CDM item frame 的光环是否激活。
+-- 优先 IsActive()：暴雪特权代码消费 secret 光环数据后落盘的明文布尔
+-- （RefreshData→RefreshActive→ShouldBeActive→IsExpired 链，wow-ui-source 核实；
+-- KiraUI 骨盾模块同款读法），不受编辑模式/CDM 设置面板/hideWhenInactive=false
+-- 等"显示因素"干扰，比 IsShown 精确（这些场景 IsShown 会误报"还激活"）。
+-- ⚠️ isActive 偶尔持有 secret 值（暴雪论坛错误报告有记载）、池化释放后为 nil——
+--   两者都回退 IsShown（CDM item 是普通 Frame，IsShown 非 secret，pcall 兜底）。
+-- ⚠️ IsSecret 必须最先查：secret 值参与比较/运算会抛错，先查再比较。
+local function IsItemActive(item)
     if not item then return false end
+    if item.IsActive then
+        local ok, active = pcall(item.IsActive, item)
+        if ok and not IsSecret(active) and active ~= nil and type(active) == "boolean" then
+            return active
+        end
+    end
     local ok, shown = pcall(function() return item:IsShown() end)
     if not ok or shown == nil then return false end
     -- secret 值不可直接当布尔：再经 IsSecret 检查，secret 视为未激活
@@ -177,7 +188,7 @@ end
 
 -- 隐藏 CDM item 的图标与装饰边框（Icon 本体 + IconOverlay 外框 + MaskTexture 等）。
 -- 屏幕外容器：把 CDM item frame（图标+背景框整体）移到这里，实现"看不见"，
--- 无需 Hide 任何 region。item 的 Show/Hide 状态不因位置改变 → IsItemShown 激活判断不受影响。
+-- 无需 Hide 任何 region。item 的 Show/Hide 状态与 isActive 数据字段均不因位置改变 → IsItemActive 激活判断不受影响。
 local offscreenFrame = CreateFrame("Frame", nil, UIParent)
 offscreenFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -1000, 1000)
 offscreenFrame:SetSize(40, 40)
@@ -192,12 +203,12 @@ offscreenFrame:Show()
 --
 -- ⚠️ 生命周期：CDM item frame 是池化的（光环增删时 ReleaseAll + Acquire 复用）。
 --   光环消失时 item 被 Hide，必须把 reparent 出去的对象还回 item，否则下次 item 复用
---   显示别的光环时，按钮上会残留/错位。判断用 item:IsShown()（普通帧状态，非 secret）。
+--   显示别的光环时，按钮上会残留/错位。判断用 IsItemActive（IsActive 优先，IsShown 兜底）。
 
 -- 把对象 reparent 到按钮容器（锚定到容器内按钮 icon 对应区域 / 左上）
 local function AttachItemObjects(ov, item)
     local ok = pcall(function()
-        if not item or not IsItemShown(item) then return end
+        if not item or not IsItemActive(item) then return end
         local cd = item.GetCooldownFrame and item:GetCooldownFrame()
         local stacks = item.GetApplicationsFontString and item:GetApplicationsFontString()
         if not cd then return end
@@ -245,8 +256,8 @@ local function AttachItemObjects(ov, item)
 
         -- 用户要求：CDM 原图标/背景框无意义 → 把整个 item frame 移到屏幕外看不见。
         -- 无需 Hide 任何 region（图标、IconOverlay 框、MaskTexture 一起移走）。
-        -- ⚠️ 记录原 parent 供 detach 还原；item 的 Show/Hide 状态不因位置改变，
-        --    IsItemShown 激活判断依然有效。
+        -- ⚠️ 记录原 parent 供 detach 还原；item 的 Show/Hide 状态与 isActive 数据字段
+        --    均不因位置改变，IsItemActive 激活判断依然有效。
         if not item.__BAROrigParent then
             item.__BAROrigParent = item:GetParent()
         end
@@ -336,8 +347,8 @@ end
 local function UpdateFromItem(item)
     if not item then return end
     pcall(function()
-        -- 光环不在（item 被隐藏）→ 把对象还回 item
-        if not IsItemShown(item) then
+        -- 光环不在（isActive=false 或 item 被隐藏）→ 把对象还回 item
+        if not IsItemActive(item) then
             DetachItemObjects(item)
             return
         end

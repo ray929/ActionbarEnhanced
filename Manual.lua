@@ -44,11 +44,24 @@ local function IsSecret(v)
     return ok and res
 end
 
--- 安全判断 CDM item frame 是否显示（= 光环是否激活）。
--- ⚠️ 12.1 蓝贴提到过新 AuraButton 的 IsShown 会返回 secret；CDM item frame 是普通
---   Frame 不受此限制，但为绝对稳妥仍 pcall 包裹：异常/secret 时按"未激活"处理。
-local function IsItemShown(item)
+-- 安全判断 CDM item frame 的光环是否激活。
+-- 优先 IsActive()：暴雪特权代码消费 secret 光环数据后落盘的明文布尔
+-- （RefreshData→RefreshActive→ShouldBeActive→IsExpired 链，wow-ui-source 核实；
+-- KiraUI 骨盾模块同款读法），不受编辑模式/CDM 设置面板/hideWhenInactive=false
+-- 等"显示因素"干扰，比 IsShown 精确（这些场景 IsShown 会误报"还激活"）。
+-- ⚠️ isActive 偶尔持有 secret 值（暴雪论坛错误报告有记载）、池化释放后为 nil——
+--   两者都回退 IsShown（CDM item 是普通 Frame，IsShown 非 secret，pcall 兜底）。
+-- ⚠️ IsSecret 必须最先查：secret 值参与比较/运算会抛错，先查再比较。
+-- ⚠️ Essential/Utility 冷却 item 未覆写 ShouldBeActive（=cooldownID~=nil，分配即 true），
+--   其上 IsActive 与 IsShown 等价，本读法对它们无行为影响（本文件扫全部 4 个 viewer）。
+local function IsItemActive(item)
     if not item then return false end
+    if item.IsActive then
+        local ok, active = pcall(item.IsActive, item)
+        if ok and not IsSecret(active) and active ~= nil and type(active) == "boolean" then
+            return active
+        end
+    end
     local ok, shown = pcall(function() return item:IsShown() end)
     if not ok or shown == nil then return false end
     if IsSecret(shown) then return false end
@@ -56,7 +69,7 @@ local function IsItemShown(item)
 end
 
 -- 屏幕外容器：把 CDM item frame（图标+背景框整体）移到这里，实现"看不见"，
--- 无需 Hide 任何 region。item 的 Show/Hide 状态不因位置改变 → IsItemShown 激活判断不受影响。
+-- 无需 Hide 任何 region。item 的 Show/Hide 状态与 isActive 数据字段均不因位置改变 → IsItemActive 激活判断不受影响。
 local offscreenFrame = CreateFrame("Frame", nil, UIParent)
 offscreenFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -1000, 1000)
 offscreenFrame:SetSize(40, 40)
@@ -850,9 +863,9 @@ local function UpdateAuraDisplay(container, frame, spellID, button)
         local showTimeAllowed = (timePos ~= "无")
         local showStackAllowed = (stackPos ~= "无")
 
-        -- 光环不激活（item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置。
+        -- 光环不激活（isActive=false 或 item 被隐藏）→ 隐藏容器、把 item 还原到 CDM 原位置。
         -- 反发光独立生效：此时（无光环）按钮要点亮（亮红色，与「发光」青色区分）。
-        if not IsItemShown(frame) then
+        if not IsItemActive(frame) then
             container:Hide()
             if inverseOn then
                 ManualGlowStart(button, S.MANUAL_INVERSE_GLOW_COLOR)
@@ -879,7 +892,7 @@ local function UpdateAuraDisplay(container, frame, spellID, button)
 
         -- 用户要求：时间/层数已搬到按钮，CDM 原图标/背景框无意义 →
         -- 把整个 item frame 移到屏幕外（MoveItemOffscreen）。
-        -- 不 Hide 任何 region；item 的 Show/Hide 状态不因位置改变，IsItemShown 依然有效。
+        -- 不 Hide 任何 region；item 的 Show/Hide 状态与 isActive 数据字段均不因位置改变，IsItemActive 依然有效。
         -- 时间/层数均「无」时也保持隐藏（用户确认：全无时选简单稳定的路径）。
 
         -- 从 CDM item 拿暴雪已渲染对象

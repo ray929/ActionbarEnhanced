@@ -51,7 +51,7 @@
     - 若日后做"层数进度条/阈值变色"类功能，此路 combat-safe，优先考虑。
   - **C. KiraUI 骨盾模式（2026-08-24 分析 KiraUI-Plugin 沉淀，详见 `docs/SecretSafeAuraDetection.md`）**：不读光环数据回答"层数阈值/剩余时间"的四条补充通道——① **代理光环**：阈值问题转化为"关联光环是否存在"（骨盾 <5 层 ≡ 骨匣 Ossuary 增益消失，恰好阈值处存在的天赋光环是现成的阈值传感器）；② **`IsActive()` 明文布尔**：CDM item frame 上暴雪特权代码算好落盘的派生字段（`RefreshActive→ShouldBeActive→IsExpired` 消费 secret 后写 `self.isActive`），key 内实测可读，比 `IsShown` 精确（不受编辑模式/EUI 屏幕外 alpha=0 停靠干扰）；⚠️ 偶尔持有 secret 值，必须 `issecretvalue` 兜底；⚠️ CDM 帧 `GetSpellID()` 在受限环境可能返回 secret number，`==` 比较会 hard-error；③ **施法时钟**：自己施法的 `UNIT_SPELLCAST_SUCCEEDED` 全环境可读（含 key），`expire = now + 已知时长` 自建时钟，真值可读时校正，时钟耗尽但图标仍亮 = 未监控来源刷新 → 收声不猜；④ **学习型刷新表**：真值可读环境里观测每次施法前后 `expirationTime` 是否被推前，自动学习/遗忘刷新技能并存 profile。选型顺序：找代理光环 → 施法时钟 → B+ 多 slot 克隆。
 - secret 值 **不能靠 `type()` 预判**（12.1 起 secret 的 type() 可返回 number/boolean/string 等），统一用 `issecretvalue` 判定；对外部帧/数据的访问一律 `pcall` 包裹兜底。
-- 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。**更优读法（KiraUI 核实，2026-08-24）**：CDM item 的 `IsActive()` 返回暴雪特权代码落盘的明文布尔，不受编辑模式/EUI 屏幕外停靠干扰，key 内实测可读——判定光环激活优先它，`issecretvalue` 兜底后回退 `IsShown`。
+- 新 `AuraButton` 的 `IsShown` 可能返回 secret；CDM item frame 是**普通 Frame**，`IsShown` 安全（判定光环激活就用它）。**更优读法（KiraUI 核实，2026-08-24）**：CDM item 的 `IsActive()` 返回暴雪特权代码落盘的明文布尔，不受编辑模式/EUI 屏幕外停靠/CDM 设置面板干扰，key 内实测可读——判定光环激活优先它，`issecretvalue` 兜底后回退 `IsShown`。**Manual/AutoCDM 已于 2026-08-24 切换此读法**（`IsItemActive`：IsActive 明文布尔优先 → IsShown 兜底，secret/nil 一律回退；实测异常整体回退该 commit 即可）；⚠️ Essential/Utility 冷却 item 未覆写 `ShouldBeActive`（=cooldownID~=nil，分配即 true），其上 IsActive≡IsShown 无行为差异，故 Manual 扫全 4 viewer 也安全。
 - 冷却数据：`GetInventoryItemCooldown` 返回传统三值 number（安全，TrinketGlow 用）；`C_ActionBar.GetActionCooldown` 的 CooldownInfo 是 **secret**（勿用）。
 - 冷却缓存坑（ButtonColor，2026-08-18 修）：`_cdCache` 以按钮为 key，翻页/姿态/载具/占据切换后同一按钮换了技能 → 缓存持有旧技能冷却态（页面事件只应用不重算，isOnGCD 又不可跨时机重读）→ 残留错误灰显（进载具不施法可一直挂灰到下次施法）。修正：钩 cooldown 帧 **OnHide**（引擎隐藏 = 无漩涡 = 必然非真实 CD，缓存安全置 false）+ **OnShow**（脱战时经 `C_ActionBar.GetActionCooldownDuration(action, true)` + `DurationObject:GetRemainingDuration()` 精算写缓存——ignoreGCD 在 C 层剔除 GCD，绕开 isOnGCD 时序问题；精算前必查 `HasSecretValues()`，战斗中 secret 只补刷新不写缓存，待下次施法自愈）。GreyOnCooldown 2.0.2 同款 hook 点。
 - 按 spellID 定点的 `GetPlayerAuraBySpellID` 等在 12.1 仍存在但标注 `RequiresNonSecretAura`，战斗中仅白名单光环可用——不要依赖。
@@ -97,6 +97,7 @@
 - **仓库换行是 LF**！Windows 编辑器（含部分 AI 写入路径）会把整库转成 CRLF → 61 个文件全量 diff churn（已实际踩坑）。提交前对改动的文本文件执行 `sed -i 's/\r$//' <files>` 规范回 LF。
 - 命令经 MSYS2 bash：`D:/msys64/usr/bin/bash.exe -lc "..."`，路径用正斜杠；`git log/diff` 加 `--no-pager`。
 - 临时文件放 `.temp/`（gitignore）；不引入新外部依赖库除非用户同意。
+- **同一文件的多个编辑必须串行**（2026-08-24 实测踩坑）：一条消息里并行发多个 Edit 调用到同一文件会互相覆盖——部分编辑静默丢失，曾留下"调用已改名函数"的残留（运行时 nil 报错）。同文件多处修改要逐条消息执行，改完用 grep 验证无残留（如改名后搜旧函数名）再提交。
 - 验证：改完进游戏 `/reload` 实测；涉及刷新/显隐的功能**必须测战斗内**（secret 行为只在受限环境出现，非战斗环境测不出问题）。
 
 ### 发布打包（GitHub → CurseForge 自动打包）
