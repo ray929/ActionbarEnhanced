@@ -1,21 +1,7 @@
-# CurseForge 自动打包配置
-# 文档: https://support.curseforge.com/support/solutions/articles/9000197281-automatic-packaging
-# 触发方式: GitHub 仓库配置 webhook 后，推送 tag 即自动打包
-#   - tag 含 "alpha"（如 1.0-alpha）→ Alpha 文件
-#   - tag 含 "beta"（如 1.0-beta）  → Beta 文件
-#   - 其他 tag（如 1.0.0）         → Release 文件
-#   - 未打 tag 的 commit           → Alpha 文件
-
-# 包名必须与 .toc 文件名一致
 package-as: ActionbarEnhanced
-
-# 库（Libs/）直接提交在仓库中而非 externals 拉取（本仓库即游戏目录，本地需可运行），
-# nolib 变体无从剥离，不生成
 enable-nolib-creation: no
 
 ignore:
-  # 开发文档（非插件运行文件）
   - docs
   - AGENTS.md
-  # 第三方库自带的测试文件
   - Libs/LibStub/tests
