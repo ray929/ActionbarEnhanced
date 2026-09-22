@@ -851,8 +851,12 @@ end
 --   glow=勾选「发光」（有光环亮青色）/ inverseGlow=勾选「反发光」（无光环亮红色），
 --   允许同时勾选（状态切换时青↔红换色）；timePos / stackPos 各含「无」= 不显示该数字。
 --   任一项的启用与否不受另外三项影响。
-local function UpdateAuraDisplay(container, frame, spellID, button)
+local function UpdateAuraDisplay(ov, frame)
     local ok = pcall(function()
+        if not ov then return end
+        local container = ov.container
+        local spellID = ov.spellID
+        local button = ov.button
         if not container then return end
 
         local b = (BAR.db and BAR.db.bindings and BAR.db.bindings[spellID]) or {}
@@ -867,6 +871,9 @@ local function UpdateAuraDisplay(container, frame, spellID, button)
         -- 反发光独立生效：此时（无光环）按钮要点亮（亮红色，与「发光」青色区分）。
         if not IsItemActive(frame) then
             container:Hide()
+            -- 光环不在/帧不可解 → 清缓存，下次回落 FindFrameForSpell
+            -- （ov.frame 只在 RefreshAllOverlays 优先复用时生效；hook 会重新写回真实帧）
+            ov.frame = nil
             if inverseOn then
                 ManualGlowStart(button, S.MANUAL_INVERSE_GLOW_COLOR)
             else
@@ -884,6 +891,7 @@ local function UpdateAuraDisplay(container, frame, spellID, button)
 
         -- 光环激活：发光按勾选点亮（青色）；反发光此刻熄灭（镜像分支在上方无光环处）。
         -- 时间/层数不受发光影响，照常按各自设置显示。
+        ov.frame = frame   -- 记住真实活动帧，供 RefreshAllOverlays 优先复用（见其注释）
         if glowOn then
             ManualGlowStart(button)
         else
@@ -966,8 +974,8 @@ local function UpdateAuraDisplay(container, frame, spellID, button)
         container:Show()
     end)
     if not ok then
-        if container then container:Hide() end  -- 兜底：任何 secret/taint 操作失败都不让错误冒泡
-        ManualGlowStop(button)
+        if ov and ov.container then ov.container:Hide() end  -- 兜底：任何 secret/taint 操作失败都不让错误冒泡
+        ManualGlowStop(ov and ov.button)
     end
 end
 
@@ -1055,7 +1063,8 @@ function BAR.UpdateOverlayForSpell(spellID, frame)
         return
     end
     -- 显示项（发光/反发光/时间/层数）由 UpdateAuraDisplay 从绑定配置独立读取
-    UpdateAuraDisplay(ov.container, frame, ov.spellID, ov.button)
+    ov.frame = frame  -- hook 传入的是真实活动帧，写入缓存供 RefreshAllOverlays 优先复用
+    UpdateAuraDisplay(ov, frame)
 end
 
 -- 一次性重新同步所有覆盖层：登录 / 切换专精 / 动作条变动 / 重新扫描后调用。
@@ -1067,9 +1076,14 @@ function BAR.RefreshAllOverlays()
             if ov.container then ov.container:Hide() end
             ManualGlowStop(ov.button)
         else
-            local frame = BAR.FindFrameForSpell and BAR.FindFrameForSpell(sid)
+            -- ⚠️ 优先复用 hook 缓存的真实活动帧（ov.frame）：FindFrameForSpell 走 CDM 查看器
+            --    active 帧枚举，而被 MoveItemOffscreen 移到屏幕外的 item 不再被枚举 → 返回 nil
+            --    → 误判"光环不激活"，隐藏时间；反发光勾选时还会点亮红发光（正是本次修复的根因）。
+            --    ov.frame 由 hook（UpdateOverlayForSpell）写入真实帧、光环消失时被 UpdateAuraDisplay
+            --    清空，因此优先它不会滞留过期状态；帧不可用再回落到实时查找。
+            local frame = ov.frame or (BAR.FindFrameForSpell and BAR.FindFrameForSpell(sid))
             -- 显示项（发光/反发光/时间/层数）由 UpdateAuraDisplay 从绑定配置独立读取
-            UpdateAuraDisplay(ov.container, frame, sid, ov.button)
+            UpdateAuraDisplay(ov, frame)
         end
     end
 end
