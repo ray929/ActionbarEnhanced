@@ -1,10 +1,11 @@
 ## Interface: 120100
-## Title: Actionbar Enhanced
+## Title: ActionbarEnhanced
 ## Title-zhCN: 原生动作条增强
 ## Notes: All-in-one native action bar enhancements: buff/cooldown timers & stacks on buttons, ready glows, button state coloring, text scaling and bar cleanups.
 ## Notes-zhCN: 原生动作条一站式增强：按钮显示增益/冷却倒计时与层数、就绪发光提醒、按钮状态变色、文字调整与外观清理。
 ## Author: ray929
 ## Version: @project-version@
+## X-Curse-Project-ID: 1656061
 ## SavedVariablesPerCharacter: ActionbarEnhancedDB
 ## DefaultState: enabled
 ## Category: Combat
