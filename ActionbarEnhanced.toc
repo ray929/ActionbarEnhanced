@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: ActionbarEnhanced
 ## Title-zhCN: 原生动作条增强
 ## Notes: All-in-one native action bar enhancements: buff/cooldown timers & stacks on buttons, ready glows, button state coloring, text scaling and bar cleanups.
